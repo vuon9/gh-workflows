@@ -86,19 +86,19 @@ jobs:
 
     steps:
       - name: Check out caller repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: app
 
       - name: Check out workflow tools
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
-          repository: vuon9/gh-workflows
-          ref: ${{ github.workflow_sha }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: gh-workflows
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: gh-workflows/go.mod
 
