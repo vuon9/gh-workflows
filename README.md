@@ -32,7 +32,7 @@ on:
 
 jobs:
   testflight:
-    uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v1
+    uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.0
     with:
       project-path: Spotto.xcodeproj
       scheme: Spotto
@@ -56,7 +56,7 @@ Recommended caller controls:
 
 - Protect the workflow with a GitHub Environment such as `testflight`.
 - Run from `workflow_dispatch` first, then add branch/tag triggers after a successful pilot.
-- Reference a version tag such as `@v1`, not `@main`.
+- Reference a version tag such as `@v0.1.0` for pilots or `@v1` after the workflow is proven, not `@main`.
 
 ## Local Development
 
@@ -85,7 +85,13 @@ go run /path/to/gh-workflows/ios/testflight/cmd/ios-testflight \
 
 ## Versioning
 
-Use major tags for stable workflow contracts:
+Use the pilot tag while validating the first app migration:
+
+```yaml
+uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.0
+```
+
+After one real TestFlight upload succeeds, create a major tag for the stable workflow contract:
 
 ```bash
 git tag v1
