@@ -101,6 +101,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: gh-workflows/go.mod
+          cache: false
 
       - name: Test workflow tools
         working-directory: gh-workflows
