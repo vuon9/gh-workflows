@@ -1,0 +1,8 @@
+.DS_Store
+build/
+dist/
+tmp/
+/ios-testflight
+*.xcarchive
+*.ipa
+*.p8

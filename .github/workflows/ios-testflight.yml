@@ -1,0 +1,163 @@
+name: iOS TestFlight
+
+on:
+  workflow_call:
+    inputs:
+      project-path:
+        description: Path to the caller repository .xcodeproj. Mutually exclusive with workspace-path.
+        required: false
+        type: string
+      workspace-path:
+        description: Path to the caller repository .xcworkspace. Mutually exclusive with project-path.
+        required: false
+        type: string
+      scheme:
+        description: Xcode scheme to test, archive, and upload.
+        required: true
+        type: string
+      team-id:
+        description: Apple Developer Team ID.
+        required: true
+        type: string
+      configuration:
+        description: Xcode build configuration.
+        required: false
+        type: string
+        default: Release
+      test-destination:
+        description: xcodebuild test destination.
+        required: false
+        type: string
+        default: platform=iOS Simulator,name=iPhone 17
+      archive-destination:
+        description: xcodebuild archive destination.
+        required: false
+        type: string
+        default: generic/platform=iOS
+      export-method:
+        description: ExportOptions.plist method.
+        required: false
+        type: string
+        default: app-store-connect
+      signing-style:
+        description: ExportOptions.plist signing style.
+        required: false
+        type: string
+        default: automatic
+      bundle-id:
+        description: Bundle ID for manual signing provisioning profile mapping.
+        required: false
+        type: string
+      provisioning-profile:
+        description: Provisioning profile name for manual signing.
+        required: false
+        type: string
+      skip-tests:
+        description: Skip simulator tests before archiving.
+        required: false
+        type: boolean
+        default: false
+      clean:
+        description: Clean during archive.
+        required: false
+        type: boolean
+        default: true
+      dry-run:
+        description: Print xcodebuild commands without executing them.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      APP_STORE_CONNECT_API_KEY_P8:
+        description: App Store Connect API private key content.
+        required: true
+      APP_STORE_CONNECT_API_KEY_ID:
+        description: App Store Connect API key ID.
+        required: true
+      APP_STORE_CONNECT_API_ISSUER_ID:
+        description: App Store Connect issuer ID.
+        required: true
+      GH_WORKFLOWS_READ_TOKEN:
+        description: Optional token with read access to vuon9/gh-workflows when GitHub's default token cannot check out this private repository.
+        required: false
+
+jobs:
+  upload:
+    name: Upload TestFlight Build
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Check out workflow tools
+        uses: actions/checkout@v4
+        with:
+          repository: vuon9/gh-workflows
+          ref: ${{ github.workflow_sha }}
+          path: gh-workflows
+          token: ${{ secrets.GH_WORKFLOWS_READ_TOKEN || github.token }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: gh-workflows/go.mod
+
+      - name: Test workflow tools
+        working-directory: gh-workflows
+        run: go test ./...
+
+      - name: Build ios-testflight CLI
+        working-directory: gh-workflows
+        run: go build -o "$RUNNER_TEMP/ios-testflight" ./ios/testflight/cmd/ios-testflight
+
+      - name: Write App Store Connect API key
+        env:
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          umask 077
+          printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Upload to TestFlight
+        working-directory: app
+        env:
+          APP_STORE_CONNECT_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          args=(
+            --scheme "${{ inputs.scheme }}"
+            --team-id "${{ inputs.team-id }}"
+            --configuration "${{ inputs.configuration }}"
+            --test-destination "${{ inputs.test-destination }}"
+            --archive-destination "${{ inputs.archive-destination }}"
+            --export-method "${{ inputs.export-method }}"
+            --signing-style "${{ inputs.signing-style }}"
+          )
+
+          if [[ -n "${{ inputs.project-path }}" ]]; then
+            args+=(--project "${{ inputs.project-path }}")
+          fi
+          if [[ -n "${{ inputs.workspace-path }}" ]]; then
+            args+=(--workspace "${{ inputs.workspace-path }}")
+          fi
+          if [[ -n "${{ inputs.bundle-id }}" ]]; then
+            args+=(--bundle-id "${{ inputs.bundle-id }}")
+          fi
+          if [[ -n "${{ inputs.provisioning-profile }}" ]]; then
+            args+=(--provisioning-profile "${{ inputs.provisioning-profile }}")
+          fi
+          if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
+            args+=(--skip-tests)
+          fi
+          if [[ "${{ inputs.clean }}" == "true" ]]; then
+            args+=(--clean)
+          fi
+          if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+
+          "$RUNNER_TEMP/ios-testflight" "${args[@]}"
