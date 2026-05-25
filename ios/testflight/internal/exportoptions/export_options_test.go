@@ -38,7 +38,7 @@ func TestGeneratePlistSupportsManualProvisioningProfiles(t *testing.T) {
 		TeamID:       "ABCDE12345",
 		SigningStyle: "manual",
 		ProvisioningProfiles: map[string]string{
-			"com.buiquocvuong.Spotto": "Spotto App Store",
+			"com.example.MyApp": "MyApp App Store",
 		},
 	})
 	if err != nil {
@@ -48,8 +48,8 @@ func TestGeneratePlistSupportsManualProvisioningProfiles(t *testing.T) {
 	content := string(xml)
 	for _, want := range []string{
 		"<key>provisioningProfiles</key>",
-		"<key>com.buiquocvuong.Spotto</key>",
-		"<string>Spotto App Store</string>",
+		"<key>com.example.MyApp</key>",
+		"<string>MyApp App Store</string>",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("plist missing %q:\n%s", want, content)

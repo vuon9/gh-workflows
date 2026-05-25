@@ -4,11 +4,11 @@ import "testing"
 
 func TestPlanBuildsArchiveAndExportCommands(t *testing.T) {
 	plan, err := NewPlan(Config{
-		ProjectPath:       "Spotto.xcodeproj",
-		Scheme:            "Spotto",
+		ProjectPath:       "MyApp.xcodeproj",
+		Scheme:            "MyApp",
 		Configuration:     "Release",
 		Destination:       "generic/platform=iOS",
-		ArchivePath:       "build/TestFlight/Spotto.xcarchive",
+		ArchivePath:       "build/TestFlight/MyApp.xcarchive",
 		ExportPath:        "build/TestFlight/export",
 		ExportOptionsPath: "build/TestFlight/ExportOptions.plist",
 		Clean:             true,
@@ -20,11 +20,11 @@ func TestPlanBuildsArchiveAndExportCommands(t *testing.T) {
 	archive := plan.ArchiveCommand()
 	wantArchive := []string{
 		"xcodebuild", "archive",
-		"-project", "Spotto.xcodeproj",
-		"-scheme", "Spotto",
+		"-project", "MyApp.xcodeproj",
+		"-scheme", "MyApp",
 		"-configuration", "Release",
 		"-destination", "generic/platform=iOS",
-		"-archivePath", "build/TestFlight/Spotto.xcarchive",
+		"-archivePath", "build/TestFlight/MyApp.xcarchive",
 		"clean",
 	}
 	assertArgs(t, archive.Args, wantArchive)
@@ -32,7 +32,7 @@ func TestPlanBuildsArchiveAndExportCommands(t *testing.T) {
 	export := plan.ExportCommand()
 	wantExport := []string{
 		"xcodebuild", "-exportArchive",
-		"-archivePath", "build/TestFlight/Spotto.xcarchive",
+		"-archivePath", "build/TestFlight/MyApp.xcarchive",
 		"-exportPath", "build/TestFlight/export",
 		"-exportOptionsPlist", "build/TestFlight/ExportOptions.plist",
 	}

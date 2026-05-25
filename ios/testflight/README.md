@@ -62,9 +62,9 @@ Dry run:
 
 ```bash
 go run ./ios/testflight/cmd/ios-testflight \
-  --project Spotto.xcodeproj \
-  --scheme Spotto \
-  --team-id 256XRVYZ9V \
+  --project MyApp.xcodeproj \
+  --scheme MyApp \
+  --team-id ABCDE12345 \
   --skip-tests \
   --dry-run
 ```

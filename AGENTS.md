@@ -1,16 +1,18 @@
 # AGENTS.md - gh-workflows
 
-This repository contains shared GitHub Actions workflows and supporting tools for Vuong's projects.
+This repository contains reusable GitHub Actions workflows and supporting tools.
 
 ## Guardrails
 
 - Keep workflows reusable and project-neutral. App-specific values must come from `workflow_call` inputs or caller repository secrets.
-- Do not commit Apple certificates, provisioning profiles, App Store Connect API keys, generated archives, IPAs, screenshots, or other release artifacts.
-- Keep release logic deterministic and testable. Put non-trivial behavior in Go code with unit tests instead of long shell scripts.
+- Do not commit Apple certificates, provisioning profiles, App Store Connect API keys, generated archives, IPAs, screenshots, logs containing secrets, or other release artifacts.
+- Do not add organization-specific, customer-specific, or private project context to public docs, examples, prompts, or test fixtures.
+- Keep release logic deterministic and testable. Put non-trivial behavior in Go code with unit tests instead of long shell scripts or large inline YAML blocks.
 - Prefer small, domain-scoped folders such as `ios/testflight/`, `web/deploy/`, and `backend/ci/`.
 - Reusable workflow YAML files must stay in `.github/workflows/` because GitHub requires that location.
 - Use version tags such as `v1` for callers. Do not force app repositories to reference a moving branch for release automation.
-- Treat public compatibility as a design constraint: anything in this repo may be made public later, so do not add private business context or secrets.
+- Keep workflow inputs stable. For breaking changes, publish a new major tag and update docs.
+- Treat public compatibility as a design constraint: everything in this repository may be read, forked, and reused publicly.
 
 ## Verification
 

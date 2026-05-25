@@ -1,6 +1,6 @@
 # gh-workflows
 
-Shared GitHub Actions workflows and release tooling for Vuong's projects.
+Reusable GitHub Actions workflows and release tooling.
 
 The goal is to keep product repositories clean: app repos keep small workflow wrappers and app-specific config, while common CI/release behavior lives here.
 
@@ -20,9 +20,9 @@ jobs:
   testflight:
     uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.3
     with:
-      project-path: Spotto.xcodeproj
-      scheme: Spotto
-      team-id: 256XRVYZ9V
+      project-path: MyApp.xcodeproj
+      scheme: MyApp
+      team-id: ABCDE12345
       dry-run: true
     secrets: inherit
 ```
@@ -59,9 +59,9 @@ Example dry run from an iOS app repository:
 
 ```bash
 go run /path/to/gh-workflows/ios/testflight/cmd/ios-testflight \
-  --project Spotto.xcodeproj \
-  --scheme Spotto \
-  --team-id 256XRVYZ9V \
+  --project MyApp.xcodeproj \
+  --scheme MyApp \
+  --team-id ABCDE12345 \
   --skip-tests \
   --dry-run
 ```
