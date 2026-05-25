@@ -70,15 +70,12 @@ on:
     secrets:
       APP_STORE_CONNECT_API_KEY_P8:
         description: App Store Connect API private key content.
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY_ID:
         description: App Store Connect API key ID.
-        required: true
+        required: false
       APP_STORE_CONNECT_API_ISSUER_ID:
         description: App Store Connect issuer ID.
-        required: true
-      GH_WORKFLOWS_READ_TOKEN:
-        description: Optional token with read access to vuon9/gh-workflows when GitHub's default token cannot check out this private repository.
         required: false
 
 jobs:
@@ -99,7 +96,6 @@ jobs:
           repository: vuon9/gh-workflows
           ref: ${{ github.workflow_sha }}
           path: gh-workflows
-          token: ${{ secrets.GH_WORKFLOWS_READ_TOKEN || github.token }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -115,9 +111,14 @@ jobs:
         run: go build -o "$RUNNER_TEMP/ios-testflight" ./ios/testflight/cmd/ios-testflight
 
       - name: Write App Store Connect API key
+        if: ${{ !inputs.dry-run }}
         env:
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
         run: |
+          if [[ -z "$APP_STORE_CONNECT_API_KEY_P8" ]]; then
+            echo "APP_STORE_CONNECT_API_KEY_P8 is required when dry-run is false." >&2
+            exit 1
+          fi
           umask 077
           printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
 
@@ -128,6 +129,13 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
         run: |
+          if [[ "${{ inputs.dry-run }}" != "true" ]]; then
+            if [[ -z "$APP_STORE_CONNECT_API_KEY_ID" || -z "$APP_STORE_CONNECT_API_ISSUER_ID" ]]; then
+              echo "APP_STORE_CONNECT_API_KEY_ID and APP_STORE_CONNECT_API_ISSUER_ID are required when dry-run is false." >&2
+              exit 1
+            fi
+          fi
+
           args=(
             --scheme "${{ inputs.scheme }}"
             --team-id "${{ inputs.team-id }}"

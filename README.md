@@ -4,23 +4,9 @@ Shared GitHub Actions workflows and release tooling for Vuong's projects.
 
 The goal is to keep product repositories clean: app repos keep small workflow wrappers and app-specific config, while common CI/release behavior lives here.
 
-## Layout
+## Workflows
 
-```text
-gh-workflows/
-  .github/workflows/
-    ios-testflight.yml
-  ios/
-    testflight/
-      cmd/ios-testflight/
-      internal/exportoptions/
-      internal/xcode/
-      README.md
-```
-
-GitHub requires reusable workflow files to live in `.github/workflows/`. Domain-specific implementation and docs live under folders such as `ios/`, `web/`, and `backend/`.
-
-## iOS TestFlight Reusable Workflow
+### `ios-testflight.yml`
 
 Caller repositories can trigger TestFlight upload with a thin wrapper:
 
@@ -32,31 +18,28 @@ on:
 
 jobs:
   testflight:
-    uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.0
+    uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.1
     with:
       project-path: Spotto.xcodeproj
       scheme: Spotto
       team-id: 256XRVYZ9V
+      dry-run: true
     secrets: inherit
 ```
 
 For workspace-based apps, use `workspace-path` instead of `project-path`.
 
-Required caller secrets:
+Required caller secrets when `dry-run` is `false`:
 
 - `APP_STORE_CONNECT_API_KEY_P8`: App Store Connect API private key content.
 - `APP_STORE_CONNECT_API_KEY_ID`: App Store Connect API key ID.
 - `APP_STORE_CONNECT_API_ISSUER_ID`: App Store Connect issuer ID.
 
-Optional caller secret:
-
-- `GH_WORKFLOWS_READ_TOKEN`: token with read access to this repository. This is only needed if GitHub's default token cannot check out a private `gh-workflows` repository from the caller workflow run.
-
 Recommended caller controls:
 
 - Protect the workflow with a GitHub Environment such as `testflight`.
 - Run from `workflow_dispatch` first, then add branch/tag triggers after a successful pilot.
-- Reference a version tag such as `@v0.1.0` for pilots or `@v1` after the workflow is proven, not `@main`.
+- Reference a version tag such as `@v0.1.1` for pilots or `@v1` after the workflow is proven, not `@main`.
 
 ## Local Development
 
@@ -88,7 +71,7 @@ go run /path/to/gh-workflows/ios/testflight/cmd/ios-testflight \
 Use the pilot tag while validating the first app migration:
 
 ```yaml
-uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.0
+uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.1
 ```
 
 After one real TestFlight upload succeeds, create a major tag for the stable workflow contract:
