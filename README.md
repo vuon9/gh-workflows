@@ -24,6 +24,7 @@ jobs:
       scheme: MyApp
       team-id: ABCDE12345
       dry-run: true
+      skip-cert-check: false
     secrets: inherit
 ```
 
@@ -34,6 +35,12 @@ Required caller secrets when `dry-run` is `false`:
 - `APP_STORE_CONNECT_API_KEY_P8`: App Store Connect API private key content.
 - `APP_STORE_CONNECT_API_KEY_ID`: App Store Connect API key ID.
 - `APP_STORE_CONNECT_API_ISSUER_ID`: App Store Connect issuer ID.
+
+Useful inputs:
+
+- `dry-run`: print commands without running archive/export.
+- `skip-tests`: skip simulator tests before archive.
+- `skip-cert-check`: skip the local Apple Distribution identity preflight check. This is useful when testing whether `xcodebuild -allowProvisioningUpdates` can handle signing on a clean GitHub-hosted macOS runner.
 
 Recommended caller controls:
 

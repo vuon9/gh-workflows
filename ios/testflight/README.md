@@ -30,6 +30,7 @@ Core inputs:
 - `test-destination`: defaults to `platform=iOS Simulator,name=iPhone 17`.
 - `archive-destination`: defaults to `generic/platform=iOS`.
 - `skip-tests`: defaults to `false`.
+- `skip-cert-check`: defaults to `false`.
 - `clean`: defaults to `true`.
 - `dry-run`: defaults to `false`.
 

@@ -57,6 +57,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip-cert-check:
+        description: Skip the local Apple Distribution identity preflight check before archiving.
+        required: false
+        type: boolean
+        default: false
       clean:
         description: Clean during archive.
         required: false
@@ -161,6 +166,9 @@ jobs:
           fi
           if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
             args+=(--skip-tests)
+          fi
+          if [[ "${{ inputs.skip-cert-check }}" == "true" ]]; then
+            args+=(--skip-cert-check)
           fi
           if [[ "${{ inputs.clean }}" == "true" ]]; then
             args+=(--clean)
