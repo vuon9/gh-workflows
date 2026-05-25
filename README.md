@@ -66,6 +66,30 @@ go run /path/to/gh-workflows/ios/testflight/cmd/ios-testflight \
   --dry-run
 ```
 
+## Local Preflight With `act`
+
+[`act`](https://github.com/nektos/act) can catch basic workflow wiring problems before pushing:
+
+```bash
+act workflow_dispatch \
+  --validate \
+  -W .github/workflows/testflight.yml \
+  --input dry-run=true \
+  --input skip-tests=true
+```
+
+It can also dry-run the job graph:
+
+```bash
+act workflow_dispatch \
+  --dryrun \
+  -W .github/workflows/testflight.yml \
+  --input dry-run=true \
+  --input skip-tests=true
+```
+
+Use `act` as a preflight only. iOS release workflows still need a real GitHub-hosted macOS runner to verify Xcode, signing, Keychain behavior, and App Store Connect upload.
+
 ## Versioning
 
 Use the pilot tag while validating the first app migration:
