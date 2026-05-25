@@ -18,13 +18,14 @@ on:
 
 jobs:
   testflight:
-    uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.3
+    uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.5
     with:
       project-path: MyApp.xcodeproj
       scheme: MyApp
       team-id: ABCDE12345
       dry-run: true
       skip-cert-check: false
+      runner-label: macos-26
     secrets: inherit
 ```
 
@@ -41,6 +42,7 @@ Useful inputs:
 - `dry-run`: print commands without running archive/export.
 - `skip-tests`: skip simulator tests before archive.
 - `skip-cert-check`: skip the local Apple Distribution identity preflight check. This is useful when testing whether `xcodebuild -allowProvisioningUpdates` can handle signing on a clean GitHub-hosted macOS runner.
+- `runner-label`: runner used for the release job. Defaults to `macos-26` because App Store Connect requires the iOS 26 SDK or newer for uploads.
 
 Recommended caller controls:
 
@@ -102,7 +104,7 @@ Use `act` as a preflight only. iOS release workflows still need a real GitHub-ho
 Use the pilot tag while validating the first app migration:
 
 ```yaml
-uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.3
+uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.5
 ```
 
 After one real TestFlight upload succeeds, create a major tag for the stable workflow contract:

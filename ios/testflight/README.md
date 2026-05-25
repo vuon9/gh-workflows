@@ -33,6 +33,7 @@ Core inputs:
 - `skip-cert-check`: defaults to `false`.
 - `clean`: defaults to `true`.
 - `dry-run`: defaults to `false`.
+- `runner-label`: defaults to `macos-26`. Use an Xcode 26 or newer runner for App Store Connect uploads.
 
 Signing inputs:
 
