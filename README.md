@@ -43,6 +43,60 @@ Optional caller secrets when `signing-style: manual`:
 - `APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD`: `.p12` password.
 - `APPLE_PROVISIONING_PROFILE_BASE64`: base64-encoded App Store provisioning profile.
 
+### Preparing Manual Signing Secrets
+
+Use manual signing when a clean GitHub-hosted macOS runner should sign without asking Xcode to create certificates or profiles.
+
+1. Export an Apple Distribution certificate from a trusted Mac:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+Pick the `Apple Distribution: ... (TEAMID)` identity, then export it to a temporary `.p12`. This may show a macOS Keychain approval prompt:
+
+```bash
+P12_PASSWORD="$(openssl rand -base64 24)"
+security export \
+  -k "$HOME/Library/Keychains/login.keychain-db" \
+  -t identities \
+  -f pkcs12 \
+  -o /tmp/apple-distribution.p12 \
+  -P "$P12_PASSWORD"
+base64 -i /tmp/apple-distribution.p12 -o /tmp/apple-distribution.p12.b64
+```
+
+2. Base64-encode the App Store provisioning profile for the app:
+
+```bash
+base64 -i "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/<UUID>.mobileprovision" \
+  -o /tmp/app-store-profile.mobileprovision.b64
+```
+
+3. Set repository secrets:
+
+```bash
+gh secret set APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64 \
+  --repo owner/app-repo \
+  < /tmp/apple-distribution.p12.b64
+
+printf '%s' "$P12_PASSWORD" | gh secret set APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD \
+  --repo owner/app-repo
+
+gh secret set APPLE_PROVISIONING_PROFILE_BASE64 \
+  --repo owner/app-repo \
+  < /tmp/app-store-profile.mobileprovision.b64
+```
+
+4. Delete local temporary signing files:
+
+```bash
+rm -f /tmp/apple-distribution.p12 /tmp/apple-distribution.p12.b64 /tmp/app-store-profile.mobileprovision.b64
+unset P12_PASSWORD
+```
+
+Never commit `.p12`, `.mobileprovision`, `.p8`, archives, IPAs, or base64 secret files.
+
 Useful inputs:
 
 - `dry-run`: print commands without running archive/export.

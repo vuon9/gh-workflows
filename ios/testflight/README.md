@@ -65,6 +65,54 @@ For manual signing, the caller also provides:
 
 Do not commit `.p8` files, certificates, provisioning profiles, archives, or IPAs to any repository.
 
+## Manual Signing Secret Setup
+
+Manual signing is intended for GitHub-hosted macOS runners that should not create Apple signing assets during CI.
+
+Export the Apple Distribution identity from a trusted Mac. The export can require interactive macOS Keychain approval:
+
+```bash
+security find-identity -v -p codesigning
+
+P12_PASSWORD="$(openssl rand -base64 24)"
+security export \
+  -k "$HOME/Library/Keychains/login.keychain-db" \
+  -t identities \
+  -f pkcs12 \
+  -o /tmp/apple-distribution.p12 \
+  -P "$P12_PASSWORD"
+base64 -i /tmp/apple-distribution.p12 -o /tmp/apple-distribution.p12.b64
+```
+
+Encode the app's App Store provisioning profile:
+
+```bash
+base64 -i "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/<UUID>.mobileprovision" \
+  -o /tmp/app-store-profile.mobileprovision.b64
+```
+
+Store the values as repository secrets:
+
+```bash
+gh secret set APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64 \
+  --repo owner/app-repo \
+  < /tmp/apple-distribution.p12.b64
+
+printf '%s' "$P12_PASSWORD" | gh secret set APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD \
+  --repo owner/app-repo
+
+gh secret set APPLE_PROVISIONING_PROFILE_BASE64 \
+  --repo owner/app-repo \
+  < /tmp/app-store-profile.mobileprovision.b64
+```
+
+Clean up local temporary files:
+
+```bash
+rm -f /tmp/apple-distribution.p12 /tmp/apple-distribution.p12.b64 /tmp/app-store-profile.mobileprovision.b64
+unset P12_PASSWORD
+```
+
 ## CLI
 
 Build:
