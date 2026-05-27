@@ -6,20 +6,23 @@ import (
 )
 
 type Config struct {
-	ProjectPath       string
-	WorkspacePath     string
-	Scheme            string
-	Configuration     string
-	Destination       string
-	TestDestination   string
-	ArchivePath       string
-	ExportPath        string
-	ExportOptionsPath string
-	APIKeyPath        string
-	APIKeyID          string
-	APIIssuerID       string
-	Clean             bool
-	AllowProvisioning bool
+	ProjectPath         string
+	WorkspacePath       string
+	Scheme              string
+	Configuration       string
+	Destination         string
+	TestDestination     string
+	ArchivePath         string
+	ExportPath          string
+	ExportOptionsPath   string
+	APIKeyPath          string
+	APIKeyID            string
+	APIIssuerID         string
+	TeamID              string
+	SigningStyle        string
+	ProvisioningProfile string
+	Clean               bool
+	AllowProvisioning   bool
 }
 
 type Command struct {
@@ -78,6 +81,7 @@ func (p Plan) ArchiveCommand() Command {
 		"-destination", p.config.Destination,
 		"-archivePath", p.config.ArchivePath,
 	)
+	args = appendArchiveSigning(args, p.config)
 	args = appendAuthentication(args, p.config)
 	if p.config.Clean {
 		args = append(args, "clean")
@@ -115,6 +119,21 @@ func appendAuthentication(args []string, config Config) []string {
 	}
 	if config.APIIssuerID != "" {
 		args = append(args, "-authenticationKeyIssuerID", config.APIIssuerID)
+	}
+	return args
+}
+
+func appendArchiveSigning(args []string, config Config) []string {
+	if config.SigningStyle != "manual" {
+		return args
+	}
+	args = append(args, "CODE_SIGN_STYLE=Manual")
+	if config.TeamID != "" {
+		args = append(args, "DEVELOPMENT_TEAM="+config.TeamID)
+	}
+	args = append(args, "CODE_SIGN_IDENTITY=Apple Distribution")
+	if config.ProvisioningProfile != "" {
+		args = append(args, "PROVISIONING_PROFILE_SPECIFIER="+config.ProvisioningProfile)
 	}
 	return args
 }

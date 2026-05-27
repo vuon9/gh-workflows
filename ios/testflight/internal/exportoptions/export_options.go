@@ -10,6 +10,7 @@ import (
 
 type Options struct {
 	Method                 string
+	Destination            string
 	TeamID                 string
 	SigningStyle           string
 	ProvisioningProfiles   map[string]string
@@ -24,6 +25,9 @@ type Options struct {
 func GeneratePlist(options Options) ([]byte, error) {
 	if options.Method == "" {
 		options.Method = "app-store-connect"
+	}
+	if options.Destination == "" {
+		options.Destination = "upload"
 	}
 	if options.SigningStyle == "" {
 		options.SigningStyle = "automatic"
@@ -46,7 +50,7 @@ func GeneratePlist(options Options) ([]byte, error) {
 	buf.WriteString(`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">` + "\n")
 	buf.WriteString(`<plist version="1.0">` + "\n")
 	buf.WriteString("<dict>\n")
-	writeString(&buf, "destination", "upload")
+	writeString(&buf, "destination", options.Destination)
 	writeString(&buf, "method", options.Method)
 	writeString(&buf, "signingStyle", options.SigningStyle)
 	writeString(&buf, "teamID", options.TeamID)

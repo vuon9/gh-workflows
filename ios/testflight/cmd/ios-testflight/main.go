@@ -28,10 +28,12 @@ func run(args []string) error {
 	var cfg xcode.Config
 	var teamID string
 	var method string
+	var destination string
 	var signingStyle string
 	var bundleID string
 	var profileName string
 	var skipTests bool
+	var skipArchive bool
 	var skipCertCheck bool
 	var dryRun bool
 
@@ -49,12 +51,14 @@ func run(args []string) error {
 	flags.StringVar(&cfg.APIIssuerID, "api-issuer-id", os.Getenv("APP_STORE_CONNECT_API_ISSUER_ID"), "App Store Connect API issuer ID.")
 	flags.StringVar(&teamID, "team-id", os.Getenv("APPLE_TEAM_ID"), "Apple Developer team ID.")
 	flags.StringVar(&method, "export-method", "app-store-connect", "Export method for ExportOptions.plist.")
+	flags.StringVar(&destination, "export-destination", "upload", "ExportOptions.plist destination: upload or export.")
 	flags.StringVar(&signingStyle, "signing-style", "automatic", "Export signing style: automatic or manual.")
 	flags.StringVar(&bundleID, "bundle-id", "", "Bundle ID for manual provisioning profile mapping.")
 	flags.StringVar(&profileName, "provisioning-profile", "", "Provisioning profile name for manual signing.")
 	flags.BoolVar(&cfg.Clean, "clean", false, "Clean archive action before building.")
 	flags.BoolVar(&cfg.AllowProvisioning, "allow-provisioning-updates", true, "Pass -allowProvisioningUpdates to xcodebuild archive/export.")
 	flags.BoolVar(&skipTests, "skip-tests", false, "Skip simulator tests before archive.")
+	flags.BoolVar(&skipArchive, "skip-archive", false, "Skip archive and export an existing --archive-path.")
 	flags.BoolVar(&skipCertCheck, "skip-cert-check", false, "Skip local Apple Distribution identity check.")
 	flags.BoolVar(&dryRun, "dry-run", false, "Print commands without executing xcodebuild.")
 
@@ -73,6 +77,9 @@ func run(args []string) error {
 	if skipTests {
 		cfg.TestDestination = ""
 	}
+	cfg.TeamID = teamID
+	cfg.SigningStyle = signingStyle
+	cfg.ProvisioningProfile = profileName
 
 	plan, err := xcode.NewPlan(cfg)
 	if err != nil {
@@ -88,6 +95,7 @@ func run(args []string) error {
 	}
 	exportPlist, err := exportoptions.GeneratePlist(exportoptions.Options{
 		Method:               method,
+		Destination:          destination,
 		TeamID:               teamID,
 		SigningStyle:         signingStyle,
 		ProvisioningProfiles: profiles,
@@ -113,8 +121,10 @@ func run(args []string) error {
 			return err
 		}
 	}
-	if err := runCommand(plan.ArchiveCommand(), dryRun); err != nil {
-		return err
+	if !skipArchive {
+		if err := runCommand(plan.ArchiveCommand(), dryRun); err != nil {
+			return err
+		}
 	}
 	if err := runCommand(plan.ExportCommand(), dryRun); err != nil {
 		return err

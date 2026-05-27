@@ -32,6 +32,28 @@ func TestGeneratePlistUsesAppStoreConnectDefaults(t *testing.T) {
 	}
 }
 
+func TestGeneratePlistSupportsExportDestination(t *testing.T) {
+	xml, err := GeneratePlist(Options{
+		Method:       "app-store-connect",
+		TeamID:       "ABCDE12345",
+		SigningStyle: "automatic",
+		Destination:  "export",
+	})
+	if err != nil {
+		t.Fatalf("GeneratePlist returned error: %v", err)
+	}
+
+	content := string(xml)
+	for _, want := range []string{
+		"<key>destination</key>",
+		"<string>export</string>",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("plist missing %q:\n%s", want, content)
+		}
+	}
+}
+
 func TestGeneratePlistSupportsManualProvisioningProfiles(t *testing.T) {
 	xml, err := GeneratePlist(Options{
 		Method:       "app-store-connect",

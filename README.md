@@ -37,18 +37,75 @@ Required caller secrets when `dry-run` is `false`:
 - `APP_STORE_CONNECT_API_KEY_ID`: App Store Connect API key ID.
 - `APP_STORE_CONNECT_API_ISSUER_ID`: App Store Connect issuer ID.
 
+Optional caller secrets when `signing-style: manual`:
+
+- `APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64`: base64-encoded Apple Distribution `.p12`.
+- `APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD`: `.p12` password.
+- `APPLE_PROVISIONING_PROFILE_BASE64`: base64-encoded App Store provisioning profile.
+
 Useful inputs:
 
 - `dry-run`: print commands without running archive/export.
 - `skip-tests`: skip simulator tests before archive.
+- `skip-archive`: skip archive and export an archive downloaded from a previous release artifact.
+- `export-destination`: `upload` for TestFlight/App Store Connect upload, `export` for a reusable IPA/archive artifact.
+- `upload-artifact-name`: upload `build/TestFlight` as a GitHub Actions artifact after archive/export.
+- `download-artifact-name`: download a prior `build/TestFlight` artifact before export.
 - `skip-cert-check`: skip the local Apple Distribution identity preflight check. This is useful when testing whether `xcodebuild -allowProvisioningUpdates` can handle signing on a clean GitHub-hosted macOS runner.
 - `runner-label`: runner used for the release job. Defaults to `macos-26` because App Store Connect requires the iOS 26 SDK or newer for uploads.
+- `signing-style`: defaults to `automatic`; use `manual` with `bundle-id` and `provisioning-profile` when running on clean hosted runners.
+- `bundle-id` / `provisioning-profile`: required with manual signing so archive/export can use an installed profile instead of creating signing assets.
 
 Recommended caller controls:
 
 - Protect the workflow with a GitHub Environment such as `testflight`.
-- Run from `workflow_dispatch` first, then add branch/tag triggers after a successful pilot.
+- Use a tag-triggered workflow named `Release` to build and export the release artifact.
+- Gate the dependent TestFlight upload through a regular approval job with a GitHub Environment such as `testflight`; configure required reviewers on that environment so the upload is actually manual.
 - Reference a version tag such as `@v0.1.3` for pilots or `@v1` after the workflow is proven, not `@main`.
+
+Recommended release wrapper shape:
+
+```yaml
+name: Release
+
+on:
+  push:
+    tags:
+      - 'ios/myapp/v*'
+
+jobs:
+  release:
+    uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.6
+    with:
+      project-path: MyApp.xcodeproj
+      scheme: MyApp
+      team-id: ABCDE12345
+      export-destination: export
+      upload-artifact-name: myapp-ios-release-${{ github.run_id }}
+      runner-label: macos-26
+    secrets: inherit
+
+  approve-testflight:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: testflight
+    steps:
+      - run: echo "TestFlight upload approved for $GITHUB_REF_NAME"
+
+  testflight:
+    needs: approve-testflight
+    uses: vuon9/gh-workflows/.github/workflows/ios-testflight.yml@v0.1.6
+    with:
+      project-path: MyApp.xcodeproj
+      scheme: MyApp
+      team-id: ABCDE12345
+      skip-tests: true
+      skip-archive: true
+      archive-path: build/TestFlight/MyApp.xcarchive
+      download-artifact-name: myapp-ios-release-${{ github.run_id }}
+      runner-label: macos-26
+    secrets: inherit
+```
 
 ## Local Development
 

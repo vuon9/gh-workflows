@@ -39,6 +39,11 @@ on:
         required: false
         type: string
         default: app-store-connect
+      export-destination:
+        description: ExportOptions.plist destination. Use export for release artifacts, upload for TestFlight.
+        required: false
+        type: string
+        default: upload
       signing-style:
         description: ExportOptions.plist signing style.
         required: false
@@ -57,6 +62,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip-archive:
+        description: Skip archive and export an existing archive-path from a downloaded release artifact.
+        required: false
+        type: boolean
+        default: false
       skip-cert-check:
         description: Skip the local Apple Distribution identity preflight check before archiving.
         required: false
@@ -72,6 +82,26 @@ on:
         required: false
         type: boolean
         default: false
+      archive-path:
+        description: Archive path to create or reuse.
+        required: false
+        type: string
+        default: ""
+      export-path:
+        description: Export output path.
+        required: false
+        type: string
+        default: build/TestFlight/export
+      upload-artifact-name:
+        description: Optional GitHub Actions artifact name to upload after archive/export.
+        required: false
+        type: string
+        default: ""
+      download-artifact-name:
+        description: Optional GitHub Actions artifact name to download before export.
+        required: false
+        type: string
+        default: ""
       runner-label:
         description: GitHub-hosted or self-hosted runner label. Use macos-26 or newer for App Store Connect uploads.
         required: false
@@ -86,6 +116,15 @@ on:
         required: false
       APP_STORE_CONNECT_API_ISSUER_ID:
         description: App Store Connect issuer ID.
+        required: false
+      APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64:
+        description: Base64-encoded Apple Distribution .p12 certificate for manual signing.
+        required: false
+      APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD:
+        description: Password for APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64.
+        required: false
+      APPLE_PROVISIONING_PROFILE_BASE64:
+        description: Base64-encoded provisioning profile for manual signing.
         required: false
 
 jobs:
@@ -121,6 +160,45 @@ jobs:
         working-directory: gh-workflows
         run: go build -o "$RUNNER_TEMP/ios-testflight" ./ios/testflight/cmd/ios-testflight
 
+      - name: Download release artifact
+        if: ${{ inputs.download-artifact-name != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.download-artifact-name }}
+          path: app/build/TestFlight
+
+      - name: Install Apple signing assets
+        if: ${{ !inputs.dry-run && inputs.signing-style == 'manual' }}
+        env:
+          APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
+          APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          SIGNING_KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          if [[ -z "$APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64" || -z "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" || -z "$APPLE_PROVISIONING_PROFILE_BASE64" ]]; then
+            echo "Manual signing requires APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64, APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD, and APPLE_PROVISIONING_PROFILE_BASE64." >&2
+            exit 1
+          fi
+
+          certificate_path="$RUNNER_TEMP/apple-distribution.p12"
+          profile_path="$RUNNER_TEMP/app-store.mobileprovision"
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
+          profiles_dir="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+
+          printf '%s' "$APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate_path"
+          printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile_path"
+
+          security create-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" $(security list-keychains -d user | tr -d '"')
+
+          mkdir -p "$profiles_dir"
+          uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$(security cms -D -i "$profile_path")")
+          cp "$profile_path" "$profiles_dir/$uuid.mobileprovision"
+
       - name: Write App Store Connect API key
         if: ${{ !inputs.dry-run }}
         env:
@@ -154,9 +232,14 @@ jobs:
             --test-destination "${{ inputs.test-destination }}"
             --archive-destination "${{ inputs.archive-destination }}"
             --export-method "${{ inputs.export-method }}"
+            --export-destination "${{ inputs.export-destination }}"
             --signing-style "${{ inputs.signing-style }}"
+            --export-path "${{ inputs.export-path }}"
           )
 
+          if [[ -n "${{ inputs.archive-path }}" ]]; then
+            args+=(--archive-path "${{ inputs.archive-path }}")
+          fi
           if [[ -n "${{ inputs.project-path }}" ]]; then
             args+=(--project "${{ inputs.project-path }}")
           fi
@@ -172,6 +255,9 @@ jobs:
           if [[ "${{ inputs.skip-tests }}" == "true" ]]; then
             args+=(--skip-tests)
           fi
+          if [[ "${{ inputs.skip-archive }}" == "true" ]]; then
+            args+=(--skip-archive)
+          fi
           if [[ "${{ inputs.skip-cert-check }}" == "true" ]]; then
             args+=(--skip-cert-check)
           fi
@@ -183,3 +269,11 @@ jobs:
           fi
 
           "$RUNNER_TEMP/ios-testflight" "${args[@]}"
+
+      - name: Upload release artifact
+        if: ${{ inputs.upload-artifact-name != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.upload-artifact-name }}
+          path: app/build/TestFlight
+          retention-days: 90

@@ -65,11 +65,45 @@ func TestPlanBuildsWorkspaceArchiveCommand(t *testing.T) {
 	assertArgs(t, archive.Args, want)
 }
 
+func TestPlanAddsManualSigningSettingsToArchiveCommand(t *testing.T) {
+	plan, err := NewPlan(Config{
+		ProjectPath:         "MyApp.xcodeproj",
+		Scheme:              "MyApp",
+		TeamID:              "ABCDE12345",
+		SigningStyle:        "manual",
+		ProvisioningProfile: "My App Store Profile",
+	})
+	if err != nil {
+		t.Fatalf("NewPlan returned error: %v", err)
+	}
+
+	archive := plan.ArchiveCommand()
+	for _, want := range []string{
+		"CODE_SIGN_STYLE=Manual",
+		"DEVELOPMENT_TEAM=ABCDE12345",
+		"CODE_SIGN_IDENTITY=Apple Distribution",
+		"PROVISIONING_PROFILE_SPECIFIER=My App Store Profile",
+	} {
+		if !containsArg(archive.Args, want) {
+			t.Fatalf("archive command missing %q:\n%v", want, archive.Args)
+		}
+	}
+}
+
 func TestPlanRejectsMissingProjectAndWorkspace(t *testing.T) {
 	_, err := NewPlan(Config{Scheme: "App"})
 	if err == nil {
 		t.Fatal("NewPlan returned nil error for missing project/workspace")
 	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func assertArgs(t *testing.T, got, want []string) {
