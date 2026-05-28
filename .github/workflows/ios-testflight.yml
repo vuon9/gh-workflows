@@ -123,6 +123,12 @@ on:
       APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD:
         description: Password for APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64.
         required: false
+      APPLE_DEVELOPMENT_CERTIFICATE_P12_BASE64:
+        description: Base64-encoded Apple Development .p12 certificate for automatic signing archives.
+        required: false
+      APPLE_DEVELOPMENT_CERTIFICATE_PASSWORD:
+        description: Password for APPLE_DEVELOPMENT_CERTIFICATE_P12_BASE64.
+        required: false
       APPLE_PROVISIONING_PROFILE_BASE64:
         description: Base64-encoded provisioning profile for manual signing.
         required: false
@@ -172,6 +178,8 @@ jobs:
         env:
           APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
           APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          APPLE_DEVELOPMENT_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DEVELOPMENT_CERTIFICATE_P12_BASE64 }}
+          APPLE_DEVELOPMENT_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPMENT_CERTIFICATE_PASSWORD }}
           APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
           SIGNING_STYLE: ${{ inputs.signing-style }}
           SIGNING_KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
@@ -185,17 +193,24 @@ jobs:
             exit 0
           fi
 
-          certificate_path="$RUNNER_TEMP/apple-distribution.p12"
+          distribution_certificate_path="$RUNNER_TEMP/apple-distribution.p12"
+          development_certificate_path="$RUNNER_TEMP/apple-development.p12"
           profile_path="$RUNNER_TEMP/app-store.mobileprovision"
           keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
           profiles_dir="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 
-          printf '%s' "$APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate_path"
-
           security create-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
           security unlock-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
-          security import "$certificate_path" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+
+          printf '%s' "$APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64" | base64 -D > "$distribution_certificate_path"
+          security import "$distribution_certificate_path" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+
+          if [[ -n "$APPLE_DEVELOPMENT_CERTIFICATE_P12_BASE64" && -n "$APPLE_DEVELOPMENT_CERTIFICATE_PASSWORD" ]]; then
+            printf '%s' "$APPLE_DEVELOPMENT_CERTIFICATE_P12_BASE64" | base64 -D > "$development_certificate_path"
+            security import "$development_certificate_path" -P "$APPLE_DEVELOPMENT_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          fi
+
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
           security list-keychains -d user -s "$keychain_path" $(security list-keychains -d user | tr -d '"')
 
