@@ -168,16 +168,21 @@ jobs:
           path: app/build/TestFlight
 
       - name: Install Apple signing assets
-        if: ${{ !inputs.dry-run && inputs.signing-style == 'manual' }}
+        if: ${{ !inputs.dry-run }}
         env:
           APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
           APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
           APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          SIGNING_STYLE: ${{ inputs.signing-style }}
           SIGNING_KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          if [[ -z "$APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64" || -z "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" || -z "$APPLE_PROVISIONING_PROFILE_BASE64" ]]; then
+          if [[ "$SIGNING_STYLE" == "manual" && ( -z "$APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64" || -z "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" || -z "$APPLE_PROVISIONING_PROFILE_BASE64" ) ]]; then
             echo "Manual signing requires APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64, APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD, and APPLE_PROVISIONING_PROFILE_BASE64." >&2
             exit 1
+          fi
+          if [[ -z "$APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64" || -z "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" ]]; then
+            echo "No Apple Distribution .p12 secret configured; skipping certificate import."
+            exit 0
           fi
 
           certificate_path="$RUNNER_TEMP/apple-distribution.p12"
@@ -186,7 +191,6 @@ jobs:
           profiles_dir="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 
           printf '%s' "$APPLE_DISTRIBUTION_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate_path"
-          printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile_path"
 
           security create-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
@@ -195,9 +199,12 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
           security list-keychains -d user -s "$keychain_path" $(security list-keychains -d user | tr -d '"')
 
-          mkdir -p "$profiles_dir"
-          uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$(security cms -D -i "$profile_path")")
-          cp "$profile_path" "$profiles_dir/$uuid.mobileprovision"
+          if [[ -n "$APPLE_PROVISIONING_PROFILE_BASE64" ]]; then
+            printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$profile_path"
+            mkdir -p "$profiles_dir"
+            uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$(security cms -D -i "$profile_path")")
+            cp "$profile_path" "$profiles_dir/$uuid.mobileprovision"
+          fi
 
       - name: Write App Store Connect API key
         if: ${{ !inputs.dry-run }}
