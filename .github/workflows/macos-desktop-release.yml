@@ -57,6 +57,11 @@ on:
         required: false
         type: string
         default: latest
+      task-version:
+        description: Go Task version to install.
+        required: false
+        type: string
+        default: v3.49.0
       upload-github-release:
         description: Upload the signed DMG to a GitHub Release on tag builds.
         required: false
@@ -115,7 +120,7 @@ jobs:
 
       - name: Install Task
         run: |
-          go install github.com/go-task/task/v3/cmd/task@latest
+          go install github.com/go-task/task/v3/cmd/task@${{ inputs.task-version }}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Install Wails CLI
