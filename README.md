@@ -33,6 +33,7 @@ jobs:
       artifact-name: myapp-macos-release-${{ github.run_id }}
       go-version-file: go.mod
       runner-label: macos-26
+      github-release-prerelease: ${{ contains(github.ref_name, '-') }}
     secrets: inherit
 ```
 
@@ -58,6 +59,7 @@ What the workflow does:
 - Notarizes and staples the app.
 - Creates, signs, notarizes, staples, and verifies the DMG.
 - Uploads the DMG as a GitHub Actions artifact and, on tags, a GitHub Release asset.
+  Set `github-release-prerelease: true` for prerelease tags such as `v1.0.0-rc.1`.
 
 Recommended caller controls:
 
