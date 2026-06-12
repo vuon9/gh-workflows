@@ -319,7 +319,7 @@ jobs:
           spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
 
       - name: Upload signed release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ inputs.artifact-name }}
           path: ${{ inputs.working-directory }}/release/${{ inputs.dmg-name }}
@@ -327,7 +327,7 @@ jobs:
 
       - name: Upload GitHub release asset
         if: ${{ inputs.upload-github-release && startsWith(github.ref, 'refs/tags/') }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3.0.0
         with:
           files: ${{ inputs.working-directory }}/release/${{ inputs.dmg-name }}
           prerelease: ${{ inputs.github-release-prerelease }}
