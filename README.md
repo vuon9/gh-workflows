@@ -6,10 +6,10 @@ The goal is to keep product repositories clean: app repos keep small workflow wr
 
 ## Workflows
 
-### `macos-desktop-release.yml`
+### `wails-macos-release.yml`
 
 Caller repositories can build, sign, notarize, staple, and publish a Developer ID
-macOS desktop DMG with a thin wrapper:
+Wails macOS DMG with a thin wrapper:
 
 ```yaml
 name: macOS Release
@@ -22,7 +22,7 @@ on:
 
 jobs:
   release:
-    uses: vuon9/gh-workflows/.github/workflows/macos-desktop-release.yml@v0.1.9
+    uses: vuon9/gh-workflows/.github/workflows/wails-macos-release.yml@v0.1.9
     with:
       app-name: MyApp
       bundle-id: com.example.myapp

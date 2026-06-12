@@ -1,4 +1,4 @@
-name: macOS Desktop Release
+name: Wails macOS Release
 
 on:
   workflow_call:
@@ -36,7 +36,7 @@ on:
         description: GitHub Actions artifact name.
         required: false
         type: string
-        default: macos-desktop-release
+        default: wails-macos-release
       runner-label:
         description: GitHub-hosted or self-hosted macOS runner label.
         required: false
