@@ -67,6 +67,11 @@ on:
         required: false
         type: boolean
         default: true
+      github-release-prerelease:
+        description: Mark the GitHub Release as a prerelease when uploading on tag builds.
+        required: false
+        type: boolean
+        default: false
     secrets:
       APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64:
         description: Base64-encoded Developer ID Application .p12 certificate.
@@ -325,4 +330,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ inputs.working-directory }}/release/${{ inputs.dmg-name }}
+          prerelease: ${{ inputs.github-release-prerelease }}
           generate_release_notes: true
