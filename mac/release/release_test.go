@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/vuon9/gh-workflows/internal/archive"
 )
 
 func TestResolveSigningIdentityUsesExplicitIdentity(t *testing.T) {
@@ -86,6 +88,31 @@ func TestCreateSignedDMGPlansCreateDmgAndVerificationCommands(t *testing.T) {
 	}
 }
 
+func TestExtractAppArchivePlacesBundleAtExpectedAppPath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "Example.app")
+	if err := os.MkdirAll(filepath.Join(source, "Contents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "Contents", "Info.plist"), []byte("plist"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(dir, "app.tar.gz")
+	if err := createTestArchive(archivePath, source); err != nil {
+		t.Fatal(err)
+	}
+
+	destination := filepath.Join(dir, "out")
+	if err := ExtractAppArchive(archivePath, destination, "bin/Example.app"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "bin", "Example.app", "Contents", "Info.plist")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type recordingRunner struct {
 	output   string
 	commands []Command
@@ -107,4 +134,8 @@ func (r *recordingRunner) commandNames() []string {
 		names[i] = command.Name
 	}
 	return names
+}
+
+func createTestArchive(archivePath, source string) error {
+	return archive.CreateTarGz(archivePath, source)
 }

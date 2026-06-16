@@ -217,6 +217,7 @@ jobs:
         run: |
           "$RUNNER_TEMP/macos-release" extract-app \
             --archive-path "$RUNNER_TEMP/wails-app/wails-app.tar.gz" \
+            --app-path "${{ inputs.app-path }}" \
             --destination .
 
       - name: Validate Apple signing secrets

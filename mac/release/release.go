@@ -245,6 +245,19 @@ func ExtractArchive(archivePath, destination string) error {
 	return archive.ExtractTarGz(archivePath, destination)
 }
 
+func ExtractAppArchive(archivePath, destination, appPath string) error {
+	if appPath != "" {
+		parent := filepath.Dir(filepath.Clean(appPath))
+		if parent != "." {
+			destination = filepath.Join(destination, parent)
+		}
+	}
+	if err := os.MkdirAll(destination, 0o755); err != nil {
+		return err
+	}
+	return ExtractArchive(archivePath, destination)
+}
+
 func notarySubmit(runner Runner, keyPath, keyID, issuerID, artifact string) error {
 	return runner.Run(Command{Name: "xcrun", Args: []string{"notarytool", "submit", artifact, "--key", keyPath, "--key-id", keyID, "--issuer", issuerID, "--wait"}})
 }

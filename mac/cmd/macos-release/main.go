@@ -49,10 +49,11 @@ func run(args []string) error {
 		flags := flag.NewFlagSet("extract-app", flag.ContinueOnError)
 		archivePath := flags.String("archive-path", "", "App bundle .tar.gz archive path.")
 		destination := flags.String("destination", ".", "Extraction destination.")
+		appPath := flags.String("app-path", "", "Expected app path relative to destination.")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		return release.ExtractArchive(*archivePath, *destination)
+		return release.ExtractAppArchive(*archivePath, *destination, *appPath)
 	case "sign-app":
 		cfg, err := parseAppConfig(args[1:])
 		if err != nil {
