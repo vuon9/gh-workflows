@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/vuon9/gh-workflows/wails/build"
+	"github.com/vuon9/gh-workflows/wails/appbuild"
 )
 
 func main() {
@@ -19,7 +19,7 @@ func run(args []string) error {
 	flags := flag.NewFlagSet("wails-build", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 
-	var cfg build.Config
+	var cfg appbuild.Config
 	flags.StringVar(&cfg.WorkingDirectory, "working-directory", ".", "Caller repository working directory.")
 	flags.StringVar(&cfg.PackageCommand, "package-command", "", "Command that builds a release .app bundle.")
 	flags.StringVar(&cfg.AppPath, "app-path", "", "Path to the built .app bundle, relative to working-directory.")
@@ -29,5 +29,5 @@ func run(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	return build.Run(cfg)
+	return appbuild.Run(cfg)
 }
