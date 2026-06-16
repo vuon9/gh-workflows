@@ -93,22 +93,31 @@ on:
         required: false
 
 jobs:
-  release:
-    name: Build, Sign, and Notarize macOS App
+  build:
+    name: Build Wails App
     runs-on: ${{ inputs.runner-label }}
-    timeout-minutes: 60
+    timeout-minutes: 45
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Check out caller repository
         uses: actions/checkout@v6
+        with:
+          path: app
+
+      - name: Check out workflow tools
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: gh-workflows
 
       - name: Set up Go from version file
         if: ${{ inputs.go-version-file != '' }}
         uses: actions/setup-go@v6
         with:
-          go-version-file: ${{ inputs.working-directory }}/${{ inputs.go-version-file }}
+          go-version-file: app/${{ inputs.working-directory }}/${{ inputs.go-version-file }}
           check-latest: true
 
       - name: Set up Go
@@ -123,6 +132,14 @@ jobs:
         with:
           bun-version: ${{ inputs.bun-version }}
 
+      - name: Test workflow tools
+        working-directory: gh-workflows
+        run: go test ./...
+
+      - name: Build Wails build CLI
+        working-directory: gh-workflows
+        run: go build -o "$RUNNER_TEMP/wails-build" ./wails/cmd/wails-build
+
       - name: Install Task
         run: |
           go install github.com/go-task/task/v3/cmd/task@${{ inputs.task-version }}
@@ -134,8 +151,73 @@ jobs:
           ln -sf "$(go env GOPATH)/bin/wails3" "$(go env GOPATH)/bin/wails"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      - name: Build app bundle
+        run: |
+          "$RUNNER_TEMP/wails-build" \
+            --working-directory "app/${{ inputs.working-directory }}" \
+            --package-command "${{ inputs.package-command }}" \
+            --app-path "${{ inputs.app-path }}" \
+            --app-name "${{ inputs.app-name }}" \
+            --bundle-id "${{ inputs.bundle-id }}" \
+            --archive-path "$RUNNER_TEMP/wails-app.tar.gz"
+
+      - name: Upload app bundle artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}-app-bundle
+          path: ${{ runner.temp }}/wails-app.tar.gz
+          retention-days: 1
+
+  sign-package-release:
+    name: Sign, Package, and Notarize macOS App
+    needs: build
+    runs-on: ${{ inputs.runner-label }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@v6
+        with:
+          path: app
+
+      - name: Check out workflow tools
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: gh-workflows
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: gh-workflows/go.mod
+          cache: false
+
+      - name: Test workflow tools
+        working-directory: gh-workflows
+        run: go test ./...
+
+      - name: Build macOS release CLI
+        working-directory: gh-workflows
+        run: go build -o "$RUNNER_TEMP/macos-release" ./mac/cmd/macos-release
+
       - name: Install create-dmg
         run: brew install create-dmg
+
+      - name: Download app bundle artifact
+        uses: actions/download-artifact@v7.0.0
+        with:
+          name: ${{ inputs.artifact-name }}-app-bundle
+          path: ${{ runner.temp }}/wails-app
+
+      - name: Extract app bundle
+        working-directory: app/${{ inputs.working-directory }}
+        run: |
+          "$RUNNER_TEMP/macos-release" extract-app \
+            --archive-path "$RUNNER_TEMP/wails-app/wails-app.tar.gz" \
+            --destination .
 
       - name: Validate Apple signing secrets
         env:
@@ -145,190 +227,75 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
         run: |
-          missing=0
-          for name in \
-            APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 \
-            APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD \
-            APP_STORE_CONNECT_API_KEY_P8 \
-            APP_STORE_CONNECT_API_KEY_ID \
-            APP_STORE_CONNECT_API_ISSUER_ID
-          do
-            if [[ -z "${!name}" ]]; then
-              echo "::error::$name is required for signed and notarized macOS releases"
-              missing=1
-            fi
-          done
-
-          if [[ "$missing" -ne 0 ]]; then
-            exit 1
-          fi
+          "$RUNNER_TEMP/macos-release" validate-secrets
 
       - name: Install Apple Developer ID certificate
         env:
-          CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
           SIGNING_KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          certificate_path="$RUNNER_TEMP/developer-id-application.p12"
-          keychain_path="$RUNNER_TEMP/developer-id-signing.keychain-db"
-
-          security create-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
-          security set-keychain-settings -lut 21600 "$keychain_path"
-          security unlock-keychain -p "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
-
-          printf '%s' "$CERTIFICATE_BASE64" | base64 -D > "$certificate_path"
-          security import "$certificate_path" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$SIGNING_KEYCHAIN_PASSWORD" "$keychain_path"
-          security list-keychains -d user -s "$keychain_path" $(security list-keychains -d user | tr -d '"')
+          "$RUNNER_TEMP/macos-release" install-certificate
 
       - name: Write App Store Connect API key
         env:
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
         run: |
-          private_keys_dir="$RUNNER_TEMP/private_keys"
-          mkdir -p "$private_keys_dir"
-          umask 077
-          printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" > "$private_keys_dir/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
-          echo "APP_STORE_CONNECT_API_KEY_PATH=$private_keys_dir/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8" >> "$GITHUB_ENV"
-
-      - name: Build app bundle
-        working-directory: ${{ inputs.working-directory }}
-        run: ${{ inputs.package-command }}
-
-      - name: Validate app bundle metadata
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          APP_PATH: ${{ inputs.app-path }}
-          APP_NAME: ${{ inputs.app-name }}
-          BUNDLE_ID: ${{ inputs.bundle-id }}
-        run: |
-          test -d "$APP_PATH"
-          plist="$APP_PATH/Contents/Info.plist"
-          test -f "$plist"
-
-          actual_name=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")
-          actual_bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")
-
-          if [[ "$actual_name" != "$APP_NAME" ]]; then
-            echo "::error::Expected CFBundleName '$APP_NAME', got '$actual_name'"
-            exit 1
-          fi
-
-          if [[ "$actual_bundle_id" != "$BUNDLE_ID" ]]; then
-            echo "::error::Expected CFBundleIdentifier '$BUNDLE_ID', got '$actual_bundle_id'"
-            exit 1
-          fi
-
-      - name: Resolve signing identity
-        id: signing
-        env:
-          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
-          TEAM_ID: ${{ inputs.team-id }}
-        run: |
-          identity="$MACOS_CODESIGN_IDENTITY"
-          if [[ -z "$identity" ]]; then
-            identity=$(security find-identity -v -p codesigning | awk -v team="($TEAM_ID)" '/Developer ID Application/ && index($0, team) { sub(/^.*"Developer ID Application: /, "Developer ID Application: "); sub(/"$/, ""); print; exit }')
-          fi
-
-          if [[ -z "$identity" ]]; then
-            echo "::error::Could not find Developer ID Application identity for team $TEAM_ID"
-            security find-identity -v -p codesigning
-            exit 1
-          fi
-
-          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          "$RUNNER_TEMP/macos-release" write-api-key
 
       - name: Sign app bundle
-        working-directory: ${{ inputs.working-directory }}
+        working-directory: app/${{ inputs.working-directory }}
         env:
-          APP_PATH: ${{ inputs.app-path }}
-          SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
         run: |
-          codesign \
-            --force \
-            --deep \
-            --options runtime \
-            --timestamp \
-            --sign "$SIGNING_IDENTITY" \
-            "$APP_PATH"
-
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          "$RUNNER_TEMP/macos-release" sign-app \
+            --app-path "${{ inputs.app-path }}" \
+            --app-name "${{ inputs.app-name }}" \
+            --team-id "${{ inputs.team-id }}"
 
       - name: Notarize and staple app bundle
-        working-directory: ${{ inputs.working-directory }}
+        working-directory: app/${{ inputs.working-directory }}
         env:
-          APP_PATH: ${{ inputs.app-path }}
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
         run: |
-          notary_zip="$RUNNER_TEMP/${{ inputs.app-name }}-notary.zip"
-          ditto -c -k --keepParent "$APP_PATH" "$notary_zip"
-
-          xcrun notarytool submit "$notary_zip" \
-            --key "$APP_STORE_CONNECT_API_KEY_PATH" \
-            --key-id "$APP_STORE_CONNECT_API_KEY_ID" \
-            --issuer "$APP_STORE_CONNECT_API_ISSUER_ID" \
-            --wait
-
-          xcrun stapler staple "$APP_PATH"
-          xcrun stapler validate "$APP_PATH"
-          spctl --assess --type execute --verbose=4 "$APP_PATH"
+          "$RUNNER_TEMP/macos-release" notarize-app \
+            --app-path "${{ inputs.app-path }}" \
+            --app-name "${{ inputs.app-name }}" \
+            --team-id "${{ inputs.team-id }}"
 
       - name: Create signed DMG
-        working-directory: ${{ inputs.working-directory }}
+        working-directory: app/${{ inputs.working-directory }}
         env:
-          APP_PATH: ${{ inputs.app-path }}
-          APP_NAME: ${{ inputs.app-name }}
-          DMG_NAME: ${{ inputs.dmg-name }}
-          SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
         run: |
-          mkdir -p release
-          dmg_path="release/$DMG_NAME"
-
-          create-dmg \
-            --volname "$APP_NAME" \
-            --window-pos 200 120 \
-            --window-size 800 400 \
-            --icon-size 100 \
-            --app-drop-link 600 185 \
-            "$dmg_path" \
-            "$APP_PATH"
-
-          codesign --force --timestamp --sign "$SIGNING_IDENTITY" "$dmg_path"
-          codesign --verify --verbose=2 "$dmg_path"
-          hdiutil verify "$dmg_path"
+          "$RUNNER_TEMP/macos-release" create-dmg \
+            --app-path "${{ inputs.app-path }}" \
+            --app-name "${{ inputs.app-name }}" \
+            --dmg-name "${{ inputs.dmg-name }}" \
+            --team-id "${{ inputs.team-id }}"
 
       - name: Notarize and staple DMG
-        working-directory: ${{ inputs.working-directory }}
+        working-directory: app/${{ inputs.working-directory }}
         env:
-          DMG_NAME: ${{ inputs.dmg-name }}
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
         run: |
-          dmg_path="release/$DMG_NAME"
-
-          xcrun notarytool submit "$dmg_path" \
-            --key "$APP_STORE_CONNECT_API_KEY_PATH" \
-            --key-id "$APP_STORE_CONNECT_API_KEY_ID" \
-            --issuer "$APP_STORE_CONNECT_API_ISSUER_ID" \
-            --wait
-
-          xcrun stapler staple "$dmg_path"
-          xcrun stapler validate "$dmg_path"
-          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
+          "$RUNNER_TEMP/macos-release" notarize-dmg \
+            --dmg-name "${{ inputs.dmg-name }}"
 
       - name: Upload signed release artifact
         uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ inputs.artifact-name }}
-          path: ${{ inputs.working-directory }}/release/${{ inputs.dmg-name }}
+          path: app/${{ inputs.working-directory }}/release/${{ inputs.dmg-name }}
           retention-days: 90
 
       - name: Upload GitHub release asset
         if: ${{ inputs.upload-github-release && startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v3.0.0
         with:
-          files: ${{ inputs.working-directory }}/release/${{ inputs.dmg-name }}
+          files: app/${{ inputs.working-directory }}/release/${{ inputs.dmg-name }}
           prerelease: ${{ inputs.github-release-prerelease }}
           generate_release_notes: true
