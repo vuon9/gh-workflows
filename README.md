@@ -6,6 +6,60 @@ The goal is to keep product repositories clean: app repos keep small workflow wr
 
 ## Workflows
 
+### `homebrew-cask-update.yml`
+
+Caller repositories can update a cask in a separate Homebrew tap after a release
+asset exists. The workflow resolves the release asset, downloads it, calculates
+the real SHA256, updates the cask file, runs Homebrew validation, and opens a PR
+to the tap repository by default.
+
+```yaml
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        type: string
+        required: true
+
+jobs:
+  update-homebrew:
+    uses: vuon9/gh-workflows/.github/workflows/homebrew-cask-update.yml@v0.2.0
+    with:
+      tap-repository: owner/homebrew-tap
+      cask-token: myapp
+      release-tag: ${{ github.event.release.tag_name || inputs.release-tag }}
+      artifact-name-regex: "MyApp-.*\\.dmg$"
+      open-pull-request: true
+    secrets:
+      TAP_REPO_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+```
+
+Required caller secret:
+
+- `TAP_REPO_TOKEN`: fine-grained token or GitHub App token with write access to
+  the tap repository. The caller repository `GITHUB_TOKEN` is not enough when
+  the tap lives in a different repository.
+
+Useful inputs:
+
+- `tap-repository`: tap repo such as `owner/homebrew-tap`.
+- `cask-token`: cask token such as `myapp`.
+- `cask-path`: cask path inside the tap repo. Defaults to `Casks/<cask-token>.rb`.
+- `source-repository`: release repo. Defaults to the caller repository.
+- `release-tag`: release tag. Defaults to the caller ref name.
+- `artifact-name-regex`: must match exactly one release asset when `artifact-url`
+  is omitted.
+- `artifact-url`: explicit release artifact URL when the caller already knows it.
+- `version`: cask version. Defaults to the release tag basename with a leading
+  `v` removed.
+- `open-pull-request`: defaults to `true`. Set to `false` only when direct tap
+  pushes are acceptable.
+- `dry-run`: updates and validates locally without pushing.
+
 ### `macos-release.yml`
 
 Caller repositories can sign, notarize, staple, package, and publish a Developer ID

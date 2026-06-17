@@ -1,0 +1,313 @@
+name: Homebrew Cask Update
+
+on:
+  workflow_call:
+    inputs:
+      tap-repository:
+        description: Homebrew tap repository, for example owner/homebrew-tap.
+        required: true
+        type: string
+      cask-token:
+        description: Cask token to update, for example devtoolbox.
+        required: true
+        type: string
+      cask-path:
+        description: Cask file path inside the tap repository.
+        required: false
+        type: string
+        default: ""
+      source-repository:
+        description: Repository that owns the release asset. Defaults to the caller repository.
+        required: false
+        type: string
+        default: ""
+      release-tag:
+        description: Release tag that owns the artifact. Defaults to the caller ref name.
+        required: false
+        type: string
+        default: ""
+      artifact-name-regex:
+        description: Regular expression used to select exactly one release asset.
+        required: false
+        type: string
+        default: "\\.dmg$"
+      artifact-url:
+        description: Explicit artifact URL. When set, release asset lookup is skipped.
+        required: false
+        type: string
+        default: ""
+      version:
+        description: Cask version. Defaults to release-tag basename with a leading v removed.
+        required: false
+        type: string
+        default: ""
+      base-branch:
+        description: Tap repository base branch.
+        required: false
+        type: string
+        default: main
+      update-branch:
+        description: Branch name for PR updates. Defaults to homebrew/<cask-token>-<release-tag>.
+        required: false
+        type: string
+        default: ""
+      open-pull-request:
+        description: Open or update a pull request instead of pushing directly to base-branch.
+        required: false
+        type: boolean
+        default: true
+      dry-run:
+        description: Update and validate locally without pushing.
+        required: false
+        type: boolean
+        default: false
+      runner-label:
+        description: Runner label. Use macOS so Homebrew cask validation is available.
+        required: false
+        type: string
+        default: macos-26
+    secrets:
+      TAP_REPO_TOKEN:
+        description: Fine-grained token or GitHub App token with write access to tap-repository.
+        required: true
+
+jobs:
+  update:
+    name: Update Homebrew Cask
+    runs-on: ${{ inputs.runner-label }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out tap repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.tap-repository }}
+          token: ${{ secrets.TAP_REPO_TOKEN }}
+          ref: ${{ inputs.base-branch }}
+          path: tap
+
+      - name: Resolve release artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          ARTIFACT_NAME_REGEX: ${{ inputs.artifact-name-regex }}
+          ARTIFACT_URL: ${{ inputs.artifact-url }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          source_repository="$SOURCE_REPOSITORY"
+          if [[ -z "$source_repository" ]]; then
+            source_repository="$GITHUB_REPOSITORY"
+          fi
+
+          release_tag="$RELEASE_TAG"
+          if [[ -z "$release_tag" ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          fi
+
+          version="$VERSION"
+          if [[ -z "$version" ]]; then
+            tag_basename="${release_tag##*/}"
+            version="${tag_basename#v}"
+          fi
+
+          artifact_url="$ARTIFACT_URL"
+          asset_name=""
+          if [[ -z "$artifact_url" ]]; then
+            mapfile -t matches < <(
+              gh release view "$release_tag" \
+                --repo "$source_repository" \
+                --json assets \
+                --jq '.assets[] | select(.name | test(env.ARTIFACT_NAME_REGEX)) | [.name, .url] | @tsv'
+            )
+
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "::error::Expected exactly one release asset matching '$ARTIFACT_NAME_REGEX', found ${#matches[@]}."
+              printf '%s\n' "${matches[@]}"
+              exit 1
+            fi
+
+            asset_name="${matches[0]%%$'\t'*}"
+            artifact_url="${matches[0]#*$'\t'}"
+          else
+            asset_name="${artifact_url##*/}"
+          fi
+
+          artifact_path="$RUNNER_TEMP/$asset_name"
+          curl --fail --location --silent --show-error "$artifact_url" --output "$artifact_path"
+          sha256="$(shasum -a 256 "$artifact_path" | awk '{print $1}')"
+
+          {
+            echo "source-repository=$source_repository"
+            echo "release-tag=$release_tag"
+            echo "version=$version"
+            echo "artifact-url=$artifact_url"
+            echo "artifact-name=$asset_name"
+            echo "sha256=$sha256"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update cask file
+        id: update
+        working-directory: tap
+        env:
+          CASK_TOKEN: ${{ inputs.cask-token }}
+          CASK_PATH_INPUT: ${{ inputs.cask-path }}
+          VERSION: ${{ steps.artifact.outputs.version }}
+          SHA256: ${{ steps.artifact.outputs.sha256 }}
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+
+          cask_path="$CASK_PATH_INPUT"
+          if [[ -z "$cask_path" ]]; then
+            cask_path="Casks/$CASK_TOKEN.rb"
+          fi
+
+          ruby - "$cask_path" <<'RUBY'
+          path = ARGV.fetch(0)
+          version = ENV.fetch("VERSION")
+          sha256 = ENV.fetch("SHA256")
+          artifact_url = ENV.fetch("ARTIFACT_URL")
+
+          content = File.read(path)
+
+          replacements = {
+            version: content.sub!(/^(\s*)version\s+"[^"]+"\s*$/) { "#{$1}version \"#{version}\"" },
+            sha256: content.sub!(/^(\s*)sha256\s+(?::no_check|"[^"]+")\s*$/) { "#{$1}sha256 \"#{sha256}\"" },
+            url: content.sub!(/^(\s*)url\s+"[^"]+"(.*)$/) { "#{$1}url \"#{artifact_url}\"#{$2}" }
+          }
+
+          missing = replacements.select { |_key, value| value.nil? }.keys
+          unless missing.empty?
+            warn "Could not update #{missing.join(", ")} in #{path}"
+            exit 1
+          end
+
+          File.write(path, content)
+          RUBY
+
+          ruby -c "$cask_path"
+          echo "cask-path=$cask_path" >> "$GITHUB_OUTPUT"
+
+      - name: Validate cask
+        working-directory: tap
+        env:
+          TAP_REPOSITORY: ${{ inputs.tap-repository }}
+          CASK_TOKEN: ${{ inputs.cask-token }}
+          CASK_PATH: ${{ steps.update.outputs.cask-path }}
+        run: |
+          set -euo pipefail
+
+          owner="${TAP_REPOSITORY%%/*}"
+          repo="${TAP_REPOSITORY#*/}"
+          tap_name="$owner/${repo#homebrew-}"
+          cask_ref="$tap_name/$CASK_TOKEN"
+
+          brew tap "$tap_name" "$PWD"
+          brew style --cask "$cask_ref"
+          brew audit --cask "$cask_ref"
+          brew fetch --cask "$cask_ref"
+          brew install --cask --dry-run "$cask_ref"
+
+      - name: Commit cask update
+        id: commit
+        working-directory: tap
+        env:
+          CASK_TOKEN: ${{ inputs.cask-token }}
+          RELEASE_TAG: ${{ steps.artifact.outputs.release-tag }}
+          UPDATE_BRANCH: ${{ inputs.update-branch }}
+          OPEN_PULL_REQUEST: ${{ inputs.open-pull-request }}
+        run: |
+          set -euo pipefail
+
+          safe_release_tag="$(printf '%s' "$RELEASE_TAG" | tr '/[:space:]' '--')"
+          branch="$UPDATE_BRANCH"
+          if [[ -z "$branch" ]]; then
+            branch="homebrew/$CASK_TOKEN-$safe_release_tag"
+          fi
+
+          if [[ "$OPEN_PULL_REQUEST" == "true" ]]; then
+            git checkout -B "$branch"
+          fi
+
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "branch=$branch" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${{ steps.update.outputs.cask-path }}"
+          git commit -m "Update $CASK_TOKEN cask to ${{ steps.artifact.outputs.version }}"
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Push cask update
+        if: ${{ steps.commit.outputs.changed == 'true' && !inputs.dry-run }}
+        working-directory: tap
+        env:
+          BASE_BRANCH: ${{ inputs.base-branch }}
+          UPDATE_BRANCH: ${{ steps.commit.outputs.branch }}
+          OPEN_PULL_REQUEST: ${{ inputs.open-pull-request }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$OPEN_PULL_REQUEST" == "true" ]]; then
+            git push --force-with-lease origin "HEAD:$UPDATE_BRANCH"
+          else
+            git push origin "HEAD:$BASE_BRANCH"
+          fi
+
+      - name: Open pull request
+        if: ${{ steps.commit.outputs.changed == 'true' && !inputs.dry-run && inputs.open-pull-request }}
+        working-directory: tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+          TAP_REPOSITORY: ${{ inputs.tap-repository }}
+          BASE_BRANCH: ${{ inputs.base-branch }}
+          UPDATE_BRANCH: ${{ steps.commit.outputs.branch }}
+          CASK_TOKEN: ${{ inputs.cask-token }}
+          VERSION: ${{ steps.artifact.outputs.version }}
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          SHA256: ${{ steps.artifact.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+
+          title="Update $CASK_TOKEN cask to $VERSION"
+          body=$(cat <<BODY
+          Updates \`$CASK_TOKEN\` to \`$VERSION\`.
+
+          Artifact: $ARTIFACT_URL
+          SHA256: \`$SHA256\`
+
+          Validation run:
+          - \`ruby -c\`
+          - \`brew style --cask\`
+          - \`brew audit --cask\`
+          - \`brew fetch --cask\`
+          - \`brew install --cask --dry-run\`
+          BODY
+          )
+
+          existing_pr=$(gh pr list \
+            --repo "$TAP_REPOSITORY" \
+            --head "$UPDATE_BRANCH" \
+            --base "$BASE_BRANCH" \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [[ -n "$existing_pr" ]]; then
+            gh pr edit "$existing_pr" --repo "$TAP_REPOSITORY" --title "$title" --body "$body"
+          else
+            gh pr create \
+              --repo "$TAP_REPOSITORY" \
+              --head "$UPDATE_BRANCH" \
+              --base "$BASE_BRANCH" \
+              --title "$title" \
+              --body "$body"
+          fi
