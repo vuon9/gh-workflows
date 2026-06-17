@@ -1,14 +1,10 @@
-name: Wails macOS Release
+name: macOS Release
 
 on:
   workflow_call:
     inputs:
       app-name:
         description: Display name of the macOS app bundle.
-        required: true
-        type: string
-      bundle-id:
-        description: macOS app bundle identifier.
         required: true
         type: string
       team-id:
@@ -20,48 +16,33 @@ on:
         required: false
         type: string
         default: .
-      package-command:
-        description: Command that builds a release .app bundle.
-        required: true
-        type: string
       app-path:
-        description: Path to the built .app bundle, relative to working-directory.
+        description: Path where the app bundle should be extracted, relative to working-directory.
         required: true
         type: string
+      app-artifact-name:
+        description: Name of the uploaded .app archive artifact from the caller build job.
+        required: true
+        type: string
+      app-archive-name:
+        description: File name of the .tar.gz archive inside app-artifact-name.
+        required: false
+        type: string
+        default: macos-app.tar.gz
       dmg-name:
         description: DMG file name to create.
         required: true
         type: string
       artifact-name:
-        description: GitHub Actions artifact name.
+        description: GitHub Actions artifact name for the signed DMG.
         required: false
         type: string
-        default: wails-macos-release
+        default: macos-release
       runner-label:
         description: GitHub-hosted or self-hosted macOS runner label.
         required: false
         type: string
         default: macos-26
-      go-version-file:
-        description: Optional Go version file path relative to working-directory.
-        required: false
-        type: string
-        default: ""
-      go-version:
-        description: Go version to install when go-version-file is not set.
-        required: false
-        type: string
-        default: "1.25.0"
-      bun-version:
-        description: Bun version to install.
-        required: false
-        type: string
-        default: latest
-      task-version:
-        description: Go Task version to install.
-        required: false
-        type: string
-        default: v3.49.0
       upload-github-release:
         description: Upload the signed DMG to a GitHub Release on tag builds.
         required: false
@@ -93,84 +74,8 @@ on:
         required: false
 
 jobs:
-  build:
-    name: Build Wails App
-    runs-on: ${{ inputs.runner-label }}
-    timeout-minutes: 45
-    permissions:
-      contents: read
-
-    steps:
-      - name: Check out caller repository
-        uses: actions/checkout@v6
-        with:
-          path: app
-
-      - name: Check out workflow tools
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: gh-workflows
-
-      - name: Set up Go from version file
-        if: ${{ inputs.go-version-file != '' }}
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: app/${{ inputs.working-directory }}/${{ inputs.go-version-file }}
-          check-latest: true
-
-      - name: Set up Go
-        if: ${{ inputs.go-version-file == '' }}
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ inputs.go-version }}
-          check-latest: true
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ inputs.bun-version }}
-
-      - name: Test workflow tools
-        working-directory: gh-workflows
-        run: go test ./...
-
-      - name: Build Wails build CLI
-        working-directory: gh-workflows
-        run: go build -o "$RUNNER_TEMP/wails-build" ./wails/cmd/wails-build
-
-      - name: Install Task
-        run: |
-          go install github.com/go-task/task/v3/cmd/task@${{ inputs.task-version }}
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      - name: Install Wails CLI
-        run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-          ln -sf "$(go env GOPATH)/bin/wails3" "$(go env GOPATH)/bin/wails"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      - name: Build app bundle
-        run: |
-          "$RUNNER_TEMP/wails-build" \
-            --working-directory "app/${{ inputs.working-directory }}" \
-            --package-command "${{ inputs.package-command }}" \
-            --app-path "${{ inputs.app-path }}" \
-            --app-name "${{ inputs.app-name }}" \
-            --bundle-id "${{ inputs.bundle-id }}" \
-            --archive-path "$RUNNER_TEMP/wails-app.tar.gz"
-
-      - name: Upload app bundle artifact
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: ${{ inputs.artifact-name }}-app-bundle
-          path: ${{ runner.temp }}/wails-app.tar.gz
-          retention-days: 1
-
-  sign-package-release:
+  release:
     name: Sign, Package, and Notarize macOS App
-    needs: build
     runs-on: ${{ inputs.runner-label }}
     timeout-minutes: 60
     permissions:
@@ -209,14 +114,14 @@ jobs:
       - name: Download app bundle artifact
         uses: actions/download-artifact@v7.0.0
         with:
-          name: ${{ inputs.artifact-name }}-app-bundle
-          path: ${{ runner.temp }}/wails-app
+          name: ${{ inputs.app-artifact-name }}
+          path: ${{ runner.temp }}/macos-app
 
       - name: Extract app bundle
         working-directory: app/${{ inputs.working-directory }}
         run: |
           "$RUNNER_TEMP/macos-release" extract-app \
-            --archive-path "$RUNNER_TEMP/wails-app/wails-app.tar.gz" \
+            --archive-path "$RUNNER_TEMP/macos-app/${{ inputs.app-archive-name }}" \
             --app-path "${{ inputs.app-path }}" \
             --destination .
 
