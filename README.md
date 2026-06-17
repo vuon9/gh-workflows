@@ -6,10 +6,10 @@ The goal is to keep product repositories clean: app repos keep small workflow wr
 
 ## Workflows
 
-### `wails-macos-release.yml`
+### `macos-release.yml`
 
-Caller repositories can build, sign, notarize, staple, and publish a Developer ID
-Wails macOS DMG with a thin wrapper:
+Caller repositories can sign, notarize, staple, package, and publish a Developer ID
+macOS DMG after an app-specific build job uploads a `.app` bundle archive.
 
 ```yaml
 name: macOS Release
@@ -21,17 +21,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+      - run: task darwin:package:universal
+      - run: tar -czf "$RUNNER_TEMP/macos-app.tar.gz" -C bin MyApp.app
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: myapp-macos-app-${{ github.run_id }}
+          path: ${{ runner.temp }}/macos-app.tar.gz
+
   release:
-    uses: vuon9/gh-workflows/.github/workflows/wails-macos-release.yml@v0.1.9
+    needs: build
+    uses: vuon9/gh-workflows/.github/workflows/macos-release.yml@v0.2.0
     with:
       app-name: MyApp
-      bundle-id: com.example.myapp
       team-id: ABCDE12345
-      package-command: task darwin:package:universal
       app-path: bin/MyApp.app
+      app-artifact-name: myapp-macos-app-${{ github.run_id }}
       dmg-name: MyApp-macos-universal.dmg
       artifact-name: myapp-macos-release-${{ github.run_id }}
-      go-version-file: go.mod
       runner-label: macos-26
       github-release-prerelease: ${{ contains(github.ref_name, '-') }}
     secrets: inherit
@@ -51,10 +61,9 @@ Optional caller secret:
 
 What the workflow does:
 
-- Installs Go, Bun, Task, Wails v3 CLI, and `create-dmg`.
+- Downloads an app bundle archive uploaded by a caller-owned build job.
+- Installs Go and `create-dmg`.
 - Imports the Developer ID Application certificate into a temporary keychain.
-- Runs the caller `package-command` to produce the `.app` bundle.
-- Validates `CFBundleName` and `CFBundleIdentifier`.
 - Signs the app with hardened runtime and timestamping.
 - Notarizes and staples the app.
 - Creates, signs, notarizes, staples, and verifies the DMG.
@@ -66,6 +75,7 @@ Recommended caller controls:
 - Use a product/platform tag namespace such as `macos/myapp/v1.0.0`.
 - Reference a version tag after the workflow is released, not `@main`.
 - Keep Apple secrets in the app repository or a protected GitHub Environment.
+- Keep app-specific build systems such as Wails, Xcode, Electron, or custom scripts in the caller repository.
 - Run the first release manually with `workflow_dispatch` before cutting the public tag.
 - Do final Gatekeeper verification by downloading the uploaded DMG on a clean macOS machine.
 

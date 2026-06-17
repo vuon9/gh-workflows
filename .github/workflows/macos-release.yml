@@ -1,0 +1,219 @@
+name: macOS Release
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: Display name of the macOS app bundle.
+        required: true
+        type: string
+      team-id:
+        description: Apple Developer Team ID.
+        required: true
+        type: string
+      working-directory:
+        description: Caller repository working directory.
+        required: false
+        type: string
+        default: .
+      app-path:
+        description: Path where the app bundle should be extracted, relative to working-directory.
+        required: true
+        type: string
+      app-artifact-name:
+        description: Name of the uploaded .app archive artifact from the caller build job.
+        required: true
+        type: string
+      app-archive-name:
+        description: File name of the .tar.gz archive inside app-artifact-name.
+        required: false
+        type: string
+        default: macos-app.tar.gz
+      dmg-name:
+        description: DMG file name to create.
+        required: true
+        type: string
+      artifact-name:
+        description: GitHub Actions artifact name for the signed DMG.
+        required: false
+        type: string
+        default: macos-release
+      runner-label:
+        description: GitHub-hosted or self-hosted macOS runner label.
+        required: false
+        type: string
+        default: macos-26
+      upload-github-release:
+        description: Upload the signed DMG to a GitHub Release on tag builds.
+        required: false
+        type: boolean
+        default: true
+      github-release-prerelease:
+        description: Mark the GitHub Release as a prerelease when uploading on tag builds.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64:
+        description: Base64-encoded Developer ID Application .p12 certificate.
+        required: true
+      APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD:
+        description: Password for APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64.
+        required: true
+      APP_STORE_CONNECT_API_KEY_P8:
+        description: App Store Connect API private key content for notarization.
+        required: true
+      APP_STORE_CONNECT_API_KEY_ID:
+        description: App Store Connect API key ID.
+        required: true
+      APP_STORE_CONNECT_API_ISSUER_ID:
+        description: App Store Connect issuer ID.
+        required: true
+      MACOS_CODESIGN_IDENTITY:
+        description: Optional full Developer ID Application signing identity.
+        required: false
+
+jobs:
+  release:
+    name: Sign, Package, and Notarize macOS App
+    runs-on: ${{ inputs.runner-label }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@v6
+        with:
+          path: app
+
+      - name: Check out workflow tools
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: gh-workflows
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: gh-workflows/go.mod
+          cache: false
+
+      - name: Test workflow tools
+        working-directory: gh-workflows
+        run: go test ./...
+
+      - name: Build macOS release CLI
+        working-directory: gh-workflows
+        run: go build -o "$RUNNER_TEMP/macos-release" ./mac/cmd/macos-release
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Download app bundle artifact
+        uses: actions/download-artifact@v7.0.0
+        with:
+          name: ${{ inputs.app-artifact-name }}
+          path: ${{ runner.temp }}/macos-app
+
+      - name: Extract app bundle
+        working-directory: app/${{ inputs.working-directory }}
+        run: |
+          "$RUNNER_TEMP/macos-release" extract-app \
+            --archive-path "$RUNNER_TEMP/macos-app/${{ inputs.app-archive-name }}" \
+            --app-path "${{ inputs.app-path }}" \
+            --destination .
+
+      - name: Validate Apple signing secrets
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          "$RUNNER_TEMP/macos-release" validate-secrets
+
+      - name: Install Apple Developer ID certificate
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          SIGNING_KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          "$RUNNER_TEMP/macos-release" install-certificate
+
+      - name: Write App Store Connect API key
+        env:
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        run: |
+          "$RUNNER_TEMP/macos-release" write-api-key
+
+      - name: Sign app bundle
+        working-directory: app/${{ inputs.working-directory }}
+        env:
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: |
+          "$RUNNER_TEMP/macos-release" sign-app \
+            --app-path "${{ inputs.app-path }}" \
+            --app-name "${{ inputs.app-name }}" \
+            --team-id "${{ inputs.team-id }}"
+
+      - name: Notarize and staple app bundle
+        working-directory: app/${{ inputs.working-directory }}
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          "$RUNNER_TEMP/macos-release" notarize-app \
+            --app-path "${{ inputs.app-path }}" \
+            --app-name "${{ inputs.app-name }}" \
+            --team-id "${{ inputs.team-id }}"
+
+      - name: Create signed DMG
+        working-directory: app/${{ inputs.working-directory }}
+        env:
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: |
+          "$RUNNER_TEMP/macos-release" create-dmg \
+            --app-path "${{ inputs.app-path }}" \
+            --app-name "${{ inputs.app-name }}" \
+            --dmg-name "${{ inputs.dmg-name }}" \
+            --team-id "${{ inputs.team-id }}"
+
+      - name: Notarize and staple DMG
+        working-directory: app/${{ inputs.working-directory }}
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          "$RUNNER_TEMP/macos-release" notarize-dmg \
+            --dmg-name "${{ inputs.dmg-name }}"
+
+      - name: Resolve release asset path
+        id: release-asset
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          DMG_NAME: ${{ inputs.dmg-name }}
+        run: |
+          if [[ "$WORKING_DIRECTORY" == "." ]]; then
+            echo "path=app/release/$DMG_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=app/$WORKING_DIRECTORY/release/$DMG_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload signed release artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ steps.release-asset.outputs.path }}
+          retention-days: 90
+
+      - name: Upload GitHub release asset
+        if: ${{ inputs.upload-github-release && startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          files: ${{ steps.release-asset.outputs.path }}
+          prerelease: ${{ inputs.github-release-prerelease }}
+          generate_release_notes: true
