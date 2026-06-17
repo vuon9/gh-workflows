@@ -286,17 +286,29 @@ jobs:
           "$RUNNER_TEMP/macos-release" notarize-dmg \
             --dmg-name "${{ inputs.dmg-name }}"
 
+      - name: Resolve release asset path
+        id: release-asset
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          DMG_NAME: ${{ inputs.dmg-name }}
+        run: |
+          if [[ "$WORKING_DIRECTORY" == "." ]]; then
+            echo "path=app/release/$DMG_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=app/$WORKING_DIRECTORY/release/$DMG_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload signed release artifact
         uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ inputs.artifact-name }}
-          path: app/${{ inputs.working-directory }}/release/${{ inputs.dmg-name }}
+          path: ${{ steps.release-asset.outputs.path }}
           retention-days: 90
 
       - name: Upload GitHub release asset
         if: ${{ inputs.upload-github-release && startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v3.0.0
         with:
-          files: app/${{ inputs.working-directory }}/release/${{ inputs.dmg-name }}
+          files: ${{ steps.release-asset.outputs.path }}
           prerelease: ${{ inputs.github-release-prerelease }}
           generate_release_notes: true
