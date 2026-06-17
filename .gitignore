@@ -2,6 +2,7 @@
 build/
 dist/
 tmp/
+.worktrees/
 /ios-testflight
 *.xcarchive
 *.ipa
