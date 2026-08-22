@@ -60,6 +60,62 @@ Useful inputs:
   pushes are acceptable.
 - `dry-run`: updates and validates locally without pushing.
 
+### `ai-code-review.yml`
+
+Reusable AI code review for pull requests using OpenCode (`opencode github run`)
+with the runner `GITHUB_TOKEN`, so no GitHub App install is required. Every
+non-draft PR gets a review comment automatically; on-demand review can be
+triggered by commenting `/oc` or `/opencode` on a PR.
+
+```yaml
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+concurrency:
+  group: ai-code-review-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+    uses: vuon9/gh-workflows/.github/workflows/ai-code-review-reusable.yml@v0.1.9
+    with:
+      mode: pr
+    secrets:
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+```
+
+Required caller secret:
+
+- `OPENCODE_API_KEY`: OpenCode API key (from `opencode auth login` on your
+  machine, or the OpenCode dashboard).
+
+Useful inputs:
+
+- `model`: defaults to `opencode/muse-spark-1.2-contributor-free`. The
+  non-free `opencode/muse-spark-1.2-contributor` requires workspace credits.
+- `prompt`: custom review prompt. Defaults to a thorough review checklist.
+- `mode`: `pr` (auto-review non-draft PRs) or `comment` (on-demand `/oc`).
+
+Notes:
+
+- `permissions` MUST live on the caller job, not inside the reusable job:
+  a `permissions` block inside a `workflow_call` job causes `startup_failure`.
+- `if:` conditions are not allowed on caller jobs that `uses:` a reusable
+  workflow; the `mode` input handles gating inside the reusable workflow.
+- The reusable workflow is at `.github/workflows/ai-code-review-reusable.yml`
+  and can also be called directly by other repositories.
+
 ### `macos-release.yml`
 
 Caller repositories can sign, notarize, staple, package, and publish a Developer ID

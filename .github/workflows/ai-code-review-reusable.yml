@@ -1,0 +1,129 @@
+name: ai-code-review-reusable
+
+# Reusable AI code review workflow.
+#
+# Call from any repo (permissions MUST live on the caller job — a
+# permissions block inside the reusable job causes startup_failure):
+#   jobs:
+#     review:
+#       permissions:
+#         contents: read
+#         pull-requests: write
+#         issues: read
+#       uses: vuon9/gh-workflows/.github/workflows/ai-code-review-reusable.yml@v0.1.9
+#       with:
+#         model: opencode/muse-spark-1.2-contributor-free  # optional, has default
+#         prompt: "Custom review prompt"                    # optional
+#         mode: pr                                           # optional: pr | comment
+#       secrets:
+#         OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}  # required
+#
+# mode=pr      → runs only for non-draft pull_request events
+# mode=comment → runs only when the comment contains /oc or /opencode
+#
+# Notes:
+# - Uses the runner GITHUB_TOKEN (use_github_token: true), no GitHub App needed.
+# - Default model: opencode/muse-spark-1.2-contributor-free (free tier; the
+#   non-free variant requires workspace credits).
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: Model to use for the review
+        required: false
+        type: string
+        default: opencode/muse-spark-1.2-contributor-free
+      prompt:
+        description: Custom review prompt (defaults to a thorough review prompt)
+        required: false
+        type: string
+        default: ''
+      mode:
+        description: pr (auto-review PRs) or comment (on-demand /oc /opencode)
+        required: false
+        type: string
+        default: pr
+    secrets:
+      OPENCODE_API_KEY:
+        required: true
+
+jobs:
+  review:
+    if: |
+      (inputs.mode == 'pr' && github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (inputs.mode == 'comment' &&
+       github.actor != 'github-actions[bot]' &&
+       (github.event.issue.pull_request != null || github.event.pull_request != null) &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+       (contains(github.event.comment.body, ' /oc') ||
+        startsWith(github.event.comment.body, '/oc') ||
+        contains(github.event.comment.body, ' /opencode') ||
+        startsWith(github.event.comment.body, '/opencode') ||
+        contains(github.event.review_comment.body, ' /oc') ||
+        startsWith(github.event.review_comment.body, '/oc') ||
+        contains(github.event.review_comment.body, ' /opencode') ||
+        startsWith(github.event.review_comment.body, '/opencode')))
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_PROMPT: |
+        Review this pull request thoroughly:
+        - Check for bugs, logic errors and edge cases
+        - Look for security issues and unsafe patterns
+        - Assess code quality, consistency and maintainability
+        - Flag missing or weak tests
+        - Suggest concrete improvements
+        Post a clear, structured review comment with file references.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.3
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare review prompt
+        id: prompt
+        shell: bash
+        run: |
+          PROMPT="${{ inputs.prompt }}"
+          if [ -z "$PROMPT" ]; then PROMPT="$DEFAULT_PROMPT"; fi
+          printf '%s\n' "$PROMPT" > /tmp/review-prompt.txt
+          {
+            echo "value<<PROMPT_EOF"
+            cat /tmp/review-prompt.txt
+            echo "PROMPT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Get opencode version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(curl -sf https://api.github.com/repos/anomalyco/opencode/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+          echo "version=${VERSION:-latest}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache opencode
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.opencode/bin
+          key: opencode-${{ runner.os }}-${{ runner.arch }}-${{ steps.version.outputs.version }}
+
+      - name: Install opencode
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Add opencode to PATH
+        shell: bash
+        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: Run OpenCode review
+        shell: bash
+        id: run_opencode
+        run: opencode github run
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODEL: ${{ inputs.model }}
+          PROMPT: ${{ steps.prompt.outputs.value }}
+          USE_GITHUB_TOKEN: "true"
