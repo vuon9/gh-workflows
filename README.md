@@ -87,8 +87,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      issues: read
-    uses: vuon9/gh-workflows/.github/workflows/ai-code-review-reusable.yml@v0.1.9
+      issues: write
+    uses: vuon9/gh-workflows/.github/workflows/ai-code-review-reusable.yml@v0.3.0
     with:
       mode: pr
     secrets:
