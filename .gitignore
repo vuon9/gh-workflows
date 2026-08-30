@@ -4,6 +4,7 @@ dist/
 tmp/
 .worktrees/
 /ios-testflight
+/macos-release
 *.xcarchive
 *.ipa
 *.p8

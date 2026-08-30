@@ -85,7 +85,9 @@ For real validation, dry-run from a caller app repo (not this repo) before remov
 
 ## Document
 
-Add one `### <workflow>.yml` section to `README.md` covering:
+Keep the main `README.md` a short index: each workflow gets a one-line purpose plus a link to its own doc. Write the detailed contract in a per-workflow domain folder (`homebrew/README.md`, `ai-code-review/README.md`, `mac/README.md`, `ios/testflight/README.md`).
+
+Each workflow doc covers:
 
 - A thin caller example.
 - Required caller secrets and why each is required.
