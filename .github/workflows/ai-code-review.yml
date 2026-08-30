@@ -101,8 +101,14 @@ jobs:
       - name: Prepare review prompt
         id: prompt
         shell: bash
+        env:
+          # Pass the prompt as an env var, not inline. A prompt often contains
+          # backticks (markdown code spans); inline `PROMPT="${{ ... }}"` makes
+          # bash run command substitution on those backticks and fail. As an env
+          # var the text is literal.
+          PROMPT_INPUT: ${{ inputs.prompt }}
         run: |
-          PROMPT="${{ inputs.prompt }}"
+          PROMPT="$PROMPT_INPUT"
           if [ -z "$PROMPT" ]; then PROMPT="$DEFAULT_PROMPT"; fi
           printf '%s\n' "$PROMPT" > /tmp/review-prompt.txt
           {
