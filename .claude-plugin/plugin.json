@@ -1,0 +1,9 @@
+{
+  "name": "vuong-skills",
+  "version": "1.0.0",
+  "description": "Vuong's agent skills for building and shipping reusable GitHub Actions workflows.",
+  "license": "MIT",
+  "skills": [
+    "./.agents/skills/gh-workflows"
+  ]
+}
