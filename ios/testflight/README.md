@@ -32,6 +32,8 @@ Core inputs:
 - `archive-path`: defaults to `build/TestFlight/<scheme>.xcarchive`.
 - `export-path`: defaults to `build/TestFlight/export`.
 - `export-destination`: defaults to `upload`. Use `export` for a tag-triggered Release artifact.
+- `upload-artifact-name`: upload `build/TestFlight` as a GitHub Actions artifact after archive/export.
+- `download-artifact-name`: download a prior `build/TestFlight` artifact before export.
 - `signing-style`: defaults to `automatic`; use `manual` on clean hosted runners with imported signing assets.
 - `bundle-id`: required for manual signing.
 - `provisioning-profile`: required for manual signing.
