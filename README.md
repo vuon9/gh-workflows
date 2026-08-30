@@ -88,7 +88,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-    uses: vuon9/gh-workflows/.github/workflows/ai-code-review-reusable.yml@v0.3.0
+    uses: vuon9/gh-workflows/.github/workflows/ai-code-review.yml@v0.4.0
     with:
       mode: pr
     secrets:
@@ -113,7 +113,7 @@ Notes:
   a `permissions` block inside a `workflow_call` job causes `startup_failure`.
 - `if:` conditions are not allowed on caller jobs that `uses:` a reusable
   workflow; the `mode` input handles gating inside the reusable workflow.
-- The reusable workflow is at `.github/workflows/ai-code-review-reusable.yml`
+- The reusable workflow is at `.github/workflows/ai-code-review.yml`
   and can also be called directly by other repositories.
 
 ### `macos-release.yml`

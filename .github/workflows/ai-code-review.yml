@@ -1,4 +1,4 @@
-name: ai-code-review-reusable
+name: ai-code-review
 
 # Reusable AI code review workflow.
 #
@@ -10,7 +10,7 @@ name: ai-code-review-reusable
 #         contents: read
 #         pull-requests: write
 #         issues: write
-#       uses: vuon9/gh-workflows/.github/workflows/ai-code-review-reusable.yml@v0.3.0
+#       uses: vuon9/gh-workflows/.github/workflows/ai-code-review.yml@v0.4.0
 #       with:
 #         model: opencode/muse-spark-1.2-contributor-free  # optional, has default
 #         prompt: "Custom review prompt"                    # optional
