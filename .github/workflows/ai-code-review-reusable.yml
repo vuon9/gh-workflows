@@ -2,27 +2,38 @@ name: ai-code-review-reusable
 
 # Reusable AI code review workflow.
 #
-# Call from any repo (permissions MUST live on the caller job — a
+# Call from any repo (permissions MUST live on the caller job; a
 # permissions block inside the reusable job causes startup_failure):
 #   jobs:
 #     review:
 #       permissions:
 #         contents: read
 #         pull-requests: write
-#         issues: read
-#       uses: vuon9/gh-workflows/.github/workflows/ai-code-review-reusable.yml@v0.1.9
+#         issues: write
+#       uses: vuon9/gh-workflows/.github/workflows/ai-code-review-reusable.yml@v0.3.0
 #       with:
 #         model: opencode/muse-spark-1.2-contributor-free  # optional, has default
 #         prompt: "Custom review prompt"                    # optional
 #         mode: pr                                           # optional: pr | comment
+#         comment-marker: opencode-ai-review                # optional, hidden tag
 #       secrets:
 #         OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}  # required
 #
 # mode=pr      → runs only for non-draft pull_request events
 # mode=comment → runs only when the comment contains /oc or /opencode
 #
+# Comment upsert:
+# opencode's `github run` posts a NEW comment on every run (it calls the
+# issues.createComment API). This workflow adds a final step that converges to a
+# SINGLE opencode comment per issue/PR: it keeps the OLDEST comment id (so the
+# comment identity is stable across runs) and updates its body in place, deleting
+# the comments from earlier runs. Re-runs edit the one comment instead of
+# stacking, and a brand-new PR gets a fresh comment.
+#
 # Notes:
 # - Uses the runner GITHUB_TOKEN (use_github_token: true), no GitHub App needed.
+# - `issues: write` is required so the workflow can create, update, and delete
+#   the PR conversation comment; `issues: read` is NOT enough.
 # - Default model: opencode/muse-spark-1.2-contributor-free (free tier; the
 #   non-free variant requires workspace credits).
 
@@ -44,6 +55,11 @@ on:
         required: false
         type: string
         default: pr
+      comment-marker:
+        description: Hidden HTML comment tag used to track the workflow's comment
+        required: false
+        type: string
+        default: opencode-ai-review
     secrets:
       OPENCODE_API_KEY:
         required: true
@@ -127,3 +143,64 @@ jobs:
           MODEL: ${{ inputs.model }}
           PROMPT: ${{ steps.prompt.outputs.value }}
           USE_GITHUB_TOKEN: "true"
+
+      # opencode posts a NEW comment every run. Converge to a single opencode
+      # comment so re-runs upsert instead of stacking: keep the OLDEST comment
+      # id (stable identity), overwrite its body with the newest review, and
+      # delete the duplicates from earlier runs. Runs even when opencode fails
+      # so we never leave more than one comment.
+      - name: Upsert review comment (keep one per issue/PR)
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          NUMBER="${{ github.event.issue.number || github.event.pull_request.number }}"
+          MARKER="<!-- ${{ inputs.comment-marker }} -->"
+          API="/repos/${OWNER}/${REPO}/issues/${NUMBER}/comments"
+
+          if [ -z "$NUMBER" ]; then
+            echo "No issue/PR number; skipping comment upsert."
+            exit 0
+          fi
+
+          gh api "$API" --paginate > /tmp/all_comments.json 2>/dev/null \
+            || { echo "Could not list comments; skipping."; exit 0; }
+
+          # Every opencode comment ends with a "[github run](...)" footer, which
+          # is the stable ownership signal (opencode always appends it).
+          MINE=$(jq -c '[.[] | select(.body | contains("[github run](")) ] | sort_by(.created_at)' /tmp/all_comments.json)
+          COUNT=$(echo "$MINE" | jq 'length')
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "No opencode comment found; nothing to converge."
+            exit 0
+          fi
+
+          CANON_ID=$(echo "$MINE" | jq -r '.[0].id')
+          NEWEST=$(echo "$MINE" | jq -r '.[-1]')
+          NEWEST_BODY=$(echo "$NEWEST" | jq -r '.body')
+
+          # Ensure the comment carries our hidden marker so we can track it by
+          # content too. Prepend it only if it is not already there.
+          if [[ "$NEWEST_BODY" != "$MARKER"* ]]; then
+            NEWEST_BODY=$(printf '%s\n\n%s' "$MARKER" "$NEWEST_BODY")
+          fi
+          printf '%s' "$NEWEST_BODY" > /tmp/comment_body.txt
+
+          # Update the canonical (oldest) comment in place.
+          gh api --method PATCH "/repos/${OWNER}/${REPO}/issues/comments/${CANON_ID}" \
+            -F body=@/tmp/comment_body.txt >/dev/null
+
+          # Delete every other opencode comment except the canonical one.
+          for ID in $(echo "$MINE" | jq -r '.[].id'); do
+            if [ "$ID" != "$CANON_ID" ]; then
+              gh api --method DELETE "/repos/${OWNER}/${REPO}/issues/comments/${ID}" >/dev/null 2>&1 || true
+            fi
+          done
+
+          echo "Comment upserted: kept id ${CANON_ID}, removed $((COUNT - 1)) duplicate(s)."
