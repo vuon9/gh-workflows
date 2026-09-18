@@ -55,3 +55,4 @@ jobs:
 - `if:` conditions are not allowed on caller jobs that `uses:` a reusable workflow; the `mode` input handles gating inside the reusable workflow.
 - `issues: write` is required so the workflow can create, update, and delete the PR conversation comment; `issues: read` is not enough.
 - The workflow is at `.github/workflows/ai-code-review.yml` and can also be called directly by other repositories.
+- The checkout keeps its credentials (`persist-credentials: true`) and fetches 20 commits. OpenCode checks out the PR head branch itself and fetches it when it is missing from the clone; on a private repo that fetch fails with `could not read Username for 'https://github.com'` when the credentials are gone. The token stays in the job's `.git/config` for the length of the run, which is the `actions/checkout` default.
