@@ -95,8 +95,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6.0.3
         with:
-          fetch-depth: 1
-          persist-credentials: false
+          # `opencode github run` checks out the PR head branch itself, and
+          # falls back to `git fetch origin --depth=20 <branch>` when that
+          # branch is not already in the clone. On a private repo that fetch
+          # needs credentials, so the checkout keeps them; depth 20 usually
+          # makes the fetch unnecessary in the first place.
+          fetch-depth: 20
+          persist-credentials: true
 
       - name: Prepare review prompt
         id: prompt
