@@ -130,13 +130,14 @@ jobs:
             echo "PROMPT_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      # Pin the CLI. `opencode.ai/install` follows a mutable `latest` channel,
-      # and that channel was switched to the 2.x line on 2026-10-10. The 2.x line
-      # has no `github` subcommand, so `opencode github run` below died with
-      # "Unexpected positional argument: run" in every caller at once, with no
-      # change on our side.
+      # Pin the CLI. `opencode.ai/install` resolves a mutable `latest` channel
+      # that now serves the 2.x line from some edge nodes and the 1.x line from
+      # others, so the same workflow and the same caller can get either one
+      # minutes apart. The 2.x line has no `github` subcommand, so those runs die
+      # with "Unexpected positional argument: run". Observed on 2026-10-10:
+      # 15:40 resolved to 2.0.26 and failed, 15:49 resolved to 1.18.35 and passed.
       #
-      # The install script also cannot fetch a 1.x version any more: it only
+      # The install script also cannot fetch a 1.x version on request: it only
       # searches the `@opencode/cli-*` and `@opencode-ai/cli-*` scopes, while the
       # 1.x binaries ship as the unscoped `opencode-ai` package. So install from
       # npm directly instead of piping that script into bash.
