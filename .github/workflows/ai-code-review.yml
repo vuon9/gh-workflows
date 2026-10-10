@@ -10,12 +10,13 @@ name: ai-code-review
 #         contents: read
 #         pull-requests: write
 #         issues: write
-#       uses: vuon9/gh-workflows/.github/workflows/ai-code-review.yml@v0.4.0
+#       uses: vuon9/gh-workflows/.github/workflows/ai-code-review.yml@v0.4.3
 #       with:
 #         model: opencode/muse-spark-1.2-contributor-free  # optional, has default
 #         prompt: "Custom review prompt"                    # optional
 #         mode: pr                                           # optional: pr | comment
 #         comment-marker: opencode-ai-review                # optional, hidden tag
+#         opencode-version: 1.18.35                         # optional, must be 1.x
 #       secrets:
 #         OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}  # required
 #
@@ -60,6 +61,13 @@ on:
         required: false
         type: string
         default: opencode-ai-review
+      opencode-version:
+        description: >-
+          opencode CLI version to install. Must be a 1.x release: the 2.x line
+          (2.0.0 and later) removed the `github` subcommand this workflow calls.
+        required: false
+        type: string
+        default: '1.18.35'
     secrets:
       OPENCODE_API_KEY:
         required: true
@@ -122,27 +130,47 @@ jobs:
             echo "PROMPT_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Get opencode version
-        id: version
-        shell: bash
-        run: |
-          VERSION=$(curl -sf https://api.github.com/repos/anomalyco/opencode/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
-          echo "version=${VERSION:-latest}" >> "$GITHUB_OUTPUT"
-
+      # Pin the CLI. `opencode.ai/install` follows a mutable `latest` channel,
+      # and that channel was switched to the 2.x line on 2026-10-10. The 2.x line
+      # has no `github` subcommand, so `opencode github run` below died with
+      # "Unexpected positional argument: run" in every caller at once, with no
+      # change on our side.
+      #
+      # The install script also cannot fetch a 1.x version any more: it only
+      # searches the `@opencode/cli-*` and `@opencode-ai/cli-*` scopes, while the
+      # 1.x binaries ship as the unscoped `opencode-ai` package. So install from
+      # npm directly instead of piping that script into bash.
       - name: Cache opencode
+        id: cache
         uses: actions/cache@v5.0.5
         with:
-          path: ~/.opencode/bin
-          key: opencode-${{ runner.os }}-${{ runner.arch }}-${{ steps.version.outputs.version }}
+          path: ~/.opencode-cli
+          key: opencode-${{ runner.os }}-${{ runner.arch }}-${{ inputs.opencode-version }}
 
       - name: Install opencode
         if: steps.cache.outputs.cache-hit != 'true'
         shell: bash
-        run: curl -fsSL https://opencode.ai/install | bash
+        run: |
+          set -euo pipefail
+          npm install -g --prefix "$HOME/.opencode-cli" --no-audit --no-fund \
+            "opencode-ai@${{ inputs.opencode-version }}"
 
       - name: Add opencode to PATH
         shell: bash
-        run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+        run: echo "$HOME/.opencode-cli/bin" >> "$GITHUB_PATH"
+
+      # Fail here with an actionable message, rather than deep inside the review
+      # step, when the installed CLI does not match the contract this workflow
+      # depends on.
+      - name: Verify opencode has the github subcommand
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "opencode version: $(opencode --version)"
+          if ! opencode --help 2>&1 | grep -q 'opencode github'; then
+            echo "::error::opencode $(opencode --version) has no 'github' subcommand. The 2.x line removed it; set the opencode-version input to a 1.x release."
+            exit 1
+          fi
 
       - name: Run OpenCode review
         shell: bash

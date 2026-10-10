@@ -31,7 +31,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-    uses: vuon9/gh-workflows/.github/workflows/ai-code-review.yml@v0.4.0
+    uses: vuon9/gh-workflows/.github/workflows/ai-code-review.yml@v0.4.3
     with:
       mode: pr
     secrets:
@@ -48,9 +48,11 @@ jobs:
 - `prompt`: custom review prompt. Defaults to a thorough review checklist.
 - `mode`: `pr` (auto-review non-draft PRs) or `comment` (on-demand `/oc`).
 - `comment-marker`: hidden HTML comment tag used to track the workflow's comment. Defaults to `opencode-ai-review`.
+- `opencode-version`: opencode CLI version to install. Defaults to `1.18.35`. Must be a 1.x release, because the 2.x line removed the `github` subcommand this workflow calls.
 
 ## Notes
 
+- The opencode version is pinned, and installed from npm (`opencode-ai@<version>`) rather than piped from `opencode.ai/install`. That script follows a mutable `latest` channel, which was switched to the 2.x line on 2026-10-10; the 2.x line has no `github` subcommand, so `opencode github run` began failing in every caller at once with `Unexpected positional argument: "run"` and no change on the caller side. The script also cannot fetch a 1.x version any more, because it only searches the `@opencode/cli-*` and `@opencode-ai/cli-*` scopes while the 1.x binaries ship as the unscoped `opencode-ai` package. A `Verify opencode has the github subcommand` step fails early with that explanation if a pinned version ever loses the subcommand.
 - `permissions` MUST live on the caller job, not inside the reusable job: a `permissions` block inside a `workflow_call` job causes `startup_failure`.
 - `if:` conditions are not allowed on caller jobs that `uses:` a reusable workflow; the `mode` input handles gating inside the reusable workflow.
 - `issues: write` is required so the workflow can create, update, and delete the PR conversation comment; `issues: read` is not enough.
