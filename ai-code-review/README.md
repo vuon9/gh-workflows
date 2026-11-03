@@ -45,6 +45,7 @@ jobs:
 ## Inputs
 
 - `model`: defaults to `deepseek/deepseek-flash`, which needs `DEEPSEEK_API_KEY`. The `opencode/*` models need `OPENCODE_API_KEY` instead, but its free tier is exhausted from shared runner IPs and the paid ones need a subscription. A model whose provider key is missing fails fast with a message naming the secret.
+- `variant`: provider reasoning effort, passed to opencode as `VARIANT`. Defaults to `minimal` so a review finishes in about a minute instead of four; raise it when you want the model to think harder. An empty string leaves the provider default.
 - `prompt`: custom review prompt. Defaults to a thorough review checklist.
 - `mode`: `pr` (auto-review non-draft PRs) or `comment` (on-demand `/oc`).
 - `comment-marker`: hidden HTML comment tag used to track the workflow's comment. Defaults to `opencode-ai-review`.

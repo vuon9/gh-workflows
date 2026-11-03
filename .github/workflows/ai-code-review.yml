@@ -13,6 +13,7 @@ name: ai-code-review
 #       uses: vuon9/gh-workflows/.github/workflows/ai-code-review.yml@v0.4.3
 #       with:
 #         model: deepseek/deepseek-flash  # optional, has default
+#         variant: minimal                                  # optional, reasoning effort
 #         prompt: "Custom review prompt"                    # optional
 #         mode: pr                                           # optional: pr | comment
 #         comment-marker: opencode-ai-review                # optional, hidden tag
@@ -22,6 +23,17 @@ name: ai-code-review
 #
 # mode=pr      → runs only for non-draft pull_request events
 # mode=comment → runs only when the comment contains /oc or /opencode
+#
+# Visibility:
+# The review takes minutes. Before it starts, a placeholder comment carrying the
+# marker is posted so the PR shows the bot is working. The final upsert edits
+# that same comment, so a finished run leaves exactly one comment.
+#
+# Tool lockdown:
+# The PR body and diff are untrusted input, and this job holds DEEPSEEK_API_KEY
+# and GITHUB_TOKEN. Before the review, the workflow writes an opencode config
+# that denies bash, webfetch and websearch, so the reviewer can read the
+# checkout and post its comment but cannot run a command or fetch a URL.
 #
 # Comment upsert:
 # opencode's `github run` posts a NEW comment on every run (it calls the
@@ -49,6 +61,14 @@ on:
         required: false
         type: string
         default: deepseek/deepseek-flash
+      variant:
+        description: >-
+          Provider reasoning effort, passed to opencode as VARIANT. Values are
+          provider specific (for example minimal, low, medium, high). An empty
+          string leaves the provider default.
+        required: false
+        type: string
+        default: minimal
       prompt:
         description: Custom review prompt (defaults to a thorough review prompt)
         required: false
@@ -201,6 +221,54 @@ jobs:
             exit 1
           fi
 
+      - name: Post review placeholder
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          MARKER: "<!-- ${{ inputs.comment-marker }} -->"
+        run: |
+          set -euo pipefail
+
+          API="/repos/${OWNER}/${REPO}/issues/${NUMBER}/comments"
+
+          if [ -z "$NUMBER" ]; then
+            echo "No issue/PR number; skipping placeholder."
+            exit 0
+          fi
+
+          # The marker is what the upsert step below uses to find this comment.
+          # Write the body to a file so the text stays literal.
+          STARTING="**AI review starting.** opencode is reviewing this pull"
+          STARTING="$STARTING request. This comment will be replaced with the"
+          STARTING="$STARTING review when it finishes."
+          printf '%s\n\n%s\n' "$MARKER" "$STARTING" > /tmp/placeholder_body.txt
+          gh api --method POST "$API" \
+            -F body=@/tmp/placeholder_body.txt >/dev/null
+
+      # The PR body and diff are untrusted input, so a prompt injection could
+      # try to get the reviewer to read DEEPSEEK_API_KEY or GITHUB_TOKEN. Deny
+      # the tools that execute or fetch: bash, webfetch, websearch. Verified
+      # against opencode 1.18.35, whose `permission` config takes these keys
+      # with allow, ask or deny.
+      - name: Lock down review tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.config/opencode"
+          cat > "$HOME/.config/opencode/opencode.json" <<'JSON'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "permission": {
+              "bash": "deny",
+              "webfetch": "deny",
+              "websearch": "deny"
+            }
+          }
+          JSON
+
       - name: Run OpenCode review
         shell: bash
         id: run_opencode
@@ -210,8 +278,17 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODEL: ${{ inputs.model }}
+          VARIANT: ${{ inputs.variant }}
           PROMPT: ${{ steps.prompt.outputs.value }}
           USE_GITHUB_TOKEN: "true"
+          # opencode merges this env var after config, so it holds even if the
+          # global file is missing or changed. A project opencode.json could
+          # still redefine the build agent's permissions, which is why project
+          # config is disabled below. Model and prompt come in as inputs, so
+          # the review does not need project config.
+          OPENCODE_PERMISSION: >-
+            {"bash":"deny","webfetch":"deny","websearch":"deny"}
+          OPENCODE_DISABLE_PROJECT_CONFIG: "1"
 
       # opencode posts a NEW comment every run. Converge to a single opencode
       # comment so re-runs upsert instead of stacking: keep the OLDEST comment
@@ -223,13 +300,13 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          MARKER: "<!-- ${{ inputs.comment-marker }} -->"
         run: |
           set -euo pipefail
 
-          OWNER="${{ github.repository_owner }}"
-          REPO="${{ github.event.repository.name }}"
-          NUMBER="${{ github.event.issue.number || github.event.pull_request.number }}"
-          MARKER="<!-- ${{ inputs.comment-marker }} -->"
           API="/repos/${OWNER}/${REPO}/issues/${NUMBER}/comments"
 
           if [ -z "$NUMBER" ]; then
@@ -240,36 +317,54 @@ jobs:
           gh api "$API" --paginate > /tmp/all_comments.json 2>/dev/null \
             || { echo "Could not list comments; skipping."; exit 0; }
 
-          # Every opencode comment ends with a "[github run](...)" footer, which
-          # is the stable ownership signal (opencode always appends it).
-          MINE=$(jq -c '[.[] | select(.body | contains("[github run](")) ] | sort_by(.created_at)' /tmp/all_comments.json)
+          # Track two kinds of comment: the placeholder carrying our marker, and
+          # the review opencode posts, which always ends with a
+          # "[github run](...)" footer. The placeholder is older, so it becomes
+          # the canonical comment and the final review is edited into it.
+          MINE=$(jq -c --arg marker "$MARKER" '
+            [.[] | select((.body | contains($marker))
+              or (.body | contains("[github run](")))]
+            | sort_by(.created_at)' /tmp/all_comments.json)
           COUNT=$(echo "$MINE" | jq 'length')
 
           if [ "$COUNT" -eq 0 ]; then
-            echo "No opencode comment found; nothing to converge."
+            echo "No tracked comment found; nothing to converge."
             exit 0
           fi
 
           CANON_ID=$(echo "$MINE" | jq -r '.[0].id')
           NEWEST=$(echo "$MINE" | jq -r '.[-1]')
           NEWEST_BODY=$(echo "$NEWEST" | jq -r '.body')
+          HAS_REVIEW=$(echo "$NEWEST" \
+            | jq -r '.body | contains("[github run](")')
 
-          # Ensure the comment carries our hidden marker so we can track it by
-          # content too. Prepend it only if it is not already there.
-          if [[ "$NEWEST_BODY" != "$MARKER"* ]]; then
+          if [ "$HAS_REVIEW" = "false" ]; then
+            # opencode posted no review, so the newest comment is still the
+            # placeholder. Replace "starting" with the outcome instead of
+            # leaving a stale status on the PR.
+            NOT_FINISHED="**AI review did not finish.** opencode posted no"
+            NOT_FINISHED="$NOT_FINISHED review. See the workflow run."
+            NEWEST_BODY=$(printf '%s\n\n%s' "$MARKER" "$NOT_FINISHED")
+          elif [[ "$NEWEST_BODY" != "$MARKER"* ]]; then
+            # Ensure the comment carries our hidden marker so the next run can
+            # find it. Prepend it only if it is not already there.
             NEWEST_BODY=$(printf '%s\n\n%s' "$MARKER" "$NEWEST_BODY")
           fi
           printf '%s' "$NEWEST_BODY" > /tmp/comment_body.txt
 
           # Update the canonical (oldest) comment in place.
-          gh api --method PATCH "/repos/${OWNER}/${REPO}/issues/comments/${CANON_ID}" \
+          gh api --method PATCH \
+            "/repos/${OWNER}/${REPO}/issues/comments/${CANON_ID}" \
             -F body=@/tmp/comment_body.txt >/dev/null
 
           # Delete every other opencode comment except the canonical one.
           for ID in $(echo "$MINE" | jq -r '.[].id'); do
             if [ "$ID" != "$CANON_ID" ]; then
-              gh api --method DELETE "/repos/${OWNER}/${REPO}/issues/comments/${ID}" >/dev/null 2>&1 || true
+              gh api --method DELETE \
+                "/repos/${OWNER}/${REPO}/issues/comments/${ID}" \
+                >/dev/null 2>&1 || true
             fi
           done
 
-          echo "Comment upserted: kept id ${CANON_ID}, removed $((COUNT - 1)) duplicate(s)."
+          echo "Comment upserted: kept id ${CANON_ID}," \
+            "removed $((COUNT - 1)) duplicate(s)."
