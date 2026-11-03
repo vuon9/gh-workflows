@@ -12,7 +12,7 @@ name: ai-code-review
 #         issues: write
 #       uses: vuon9/gh-workflows/.github/workflows/ai-code-review.yml@v0.4.3
 #       with:
-#         model: opencode/deepseek-v4.1-flash-free  # optional, has default
+#         model: deepseek/deepseek-flash  # optional, has default
 #         prompt: "Custom review prompt"                    # optional
 #         mode: pr                                           # optional: pr | comment
 #         comment-marker: opencode-ai-review                # optional, hidden tag
@@ -35,9 +35,11 @@ name: ai-code-review
 # - Uses the runner GITHUB_TOKEN (use_github_token: true), no GitHub App needed.
 # - `issues: write` is required so the workflow can create, update, and delete
 #   the PR conversation comment; `issues: read` is NOT enough.
-# - Default model: opencode/deepseek-v4.1-flash-free (free tier; the non-free
-#   variant requires workspace credits). Run `opencode models` to see what the
-#   provider still serves before pinning a new one.
+# - Default model: deepseek/deepseek-flash, which needs the DEEPSEEK_API_KEY
+#   secret. The opencode/* models need OPENCODE_API_KEY instead, but opencode's
+#   free tier is exhausted from shared runner IPs and its paid models need a
+#   subscription, so DeepSeek is the default. Run `opencode models` to list what
+#   a key can reach before pinning a model.
 
 on:
   workflow_call:
@@ -46,7 +48,7 @@ on:
         description: Model to use for the review
         required: false
         type: string
-        default: opencode/deepseek-v4.1-flash-free
+        default: deepseek/deepseek-flash
       prompt:
         description: Custom review prompt (defaults to a thorough review prompt)
         required: false
@@ -70,8 +72,12 @@ on:
         type: string
         default: '1.18.35'
     secrets:
+      # Either key works: a DeepSeek key drives the deepseek/* models and needs
+      # no subscription, an OpenCode key drives the opencode/* models.
       OPENCODE_API_KEY:
-        required: true
+        required: false
+      DEEPSEEK_API_KEY:
+        required: false
 
 jobs:
   review:
@@ -174,12 +180,34 @@ jobs:
             exit 1
           fi
 
+      # A missing key used to surface as a provider error after the job had
+      # already spent a minute installing opencode, or worse, as a silent fall
+      # back to a free tier that shared runner IPs have always exhausted.
+      - name: Check the model has a key
+        shell: bash
+        env:
+          MODEL: ${{ inputs.model }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set -euo pipefail
+          case "$MODEL" in
+            deepseek/*)   key="${DEEPSEEK_API_KEY:-}"; want="DEEPSEEK_API_KEY" ;;
+            opencode*/*)  key="${OPENCODE_API_KEY:-}"; want="OPENCODE_API_KEY" ;;
+            *)            key="present"; want="" ;;
+          esac
+          if [ -z "$key" ]; then
+            echo "::error::model $MODEL needs the $want secret, which this repository does not set."
+            exit 1
+          fi
+
       - name: Run OpenCode review
         shell: bash
         id: run_opencode
         run: opencode github run
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODEL: ${{ inputs.model }}
           PROMPT: ${{ steps.prompt.outputs.value }}

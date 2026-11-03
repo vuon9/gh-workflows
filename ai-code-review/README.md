@@ -44,7 +44,7 @@ jobs:
 
 ## Inputs
 
-- `model`: defaults to `opencode/deepseek-v4.1-flash-free`. A non-free model needs workspace credits, and a retired one fails the job with `Model not found`, so check `opencode models` before pinning a new one.
+- `model`: defaults to `deepseek/deepseek-flash`, which needs `DEEPSEEK_API_KEY`. The `opencode/*` models need `OPENCODE_API_KEY` instead, but its free tier is exhausted from shared runner IPs and the paid ones need a subscription. A model whose provider key is missing fails fast with a message naming the secret.
 - `prompt`: custom review prompt. Defaults to a thorough review checklist.
 - `mode`: `pr` (auto-review non-draft PRs) or `comment` (on-demand `/oc`).
 - `comment-marker`: hidden HTML comment tag used to track the workflow's comment. Defaults to `opencode-ai-review`.
