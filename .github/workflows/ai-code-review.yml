@@ -12,7 +12,7 @@ name: ai-code-review
 #         issues: write
 #       uses: vuon9/gh-workflows/.github/workflows/ai-code-review.yml@v0.4.3
 #       with:
-#         model: opencode/muse-spark-1.2-contributor-free  # optional, has default
+#         model: opencode/deepseek-v4.1-flash-free  # optional, has default
 #         prompt: "Custom review prompt"                    # optional
 #         mode: pr                                           # optional: pr | comment
 #         comment-marker: opencode-ai-review                # optional, hidden tag
@@ -35,8 +35,9 @@ name: ai-code-review
 # - Uses the runner GITHUB_TOKEN (use_github_token: true), no GitHub App needed.
 # - `issues: write` is required so the workflow can create, update, and delete
 #   the PR conversation comment; `issues: read` is NOT enough.
-# - Default model: opencode/muse-spark-1.2-contributor-free (free tier; the
-#   non-free variant requires workspace credits).
+# - Default model: opencode/deepseek-v4.1-flash-free (free tier; the non-free
+#   variant requires workspace credits). Run `opencode models` to see what the
+#   provider still serves before pinning a new one.
 
 on:
   workflow_call:
@@ -45,7 +46,7 @@ on:
         description: Model to use for the review
         required: false
         type: string
-        default: opencode/muse-spark-1.2-contributor-free
+        default: opencode/deepseek-v4.1-flash-free
       prompt:
         description: Custom review prompt (defaults to a thorough review prompt)
         required: false

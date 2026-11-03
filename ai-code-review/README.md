@@ -44,7 +44,7 @@ jobs:
 
 ## Inputs
 
-- `model`: defaults to `opencode/muse-spark-1.2-contributor-free`. The non-free `opencode/muse-spark-1.2-contributor` requires workspace credits.
+- `model`: defaults to `opencode/deepseek-v4.1-flash-free`. A non-free model needs workspace credits, and a retired one fails the job with `Model not found`, so check `opencode models` before pinning a new one.
 - `prompt`: custom review prompt. Defaults to a thorough review checklist.
 - `mode`: `pr` (auto-review non-draft PRs) or `comment` (on-demand `/oc`).
 - `comment-marker`: hidden HTML comment tag used to track the workflow's comment. Defaults to `opencode-ai-review`.
